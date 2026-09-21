@@ -37,6 +37,17 @@ def test_phase2_capabilities_registered():
         assert issubclass(cap.input_schema, BaseModel)
 
 
+def test_phase3_capabilities_registered():
+    """Verify that Phase 3 advanced capabilities are present in the registry."""
+    for tool_name in ["anomaly_detection", "correlation", "segmentation"]:
+        assert tool_name in REGISTRY
+        cap = get_capability(tool_name)
+        assert isinstance(cap, Capability)
+        assert cap.name == tool_name
+        assert cap.category == "ADVANCED"
+        assert issubclass(cap.input_schema, BaseModel)
+
+
 def test_get_capability_success():
     """Verify retrieving an existing capability returns proper attributes."""
     cap = get_capability("metrics")

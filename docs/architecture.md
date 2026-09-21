@@ -1,8 +1,7 @@
 # Architecture — Insight Copilot
 
-> **Accuracy note**: This document describes the architecture as it is implemented
-> in the repository at the time of writing. Unimplemented functionality is labelled
-> explicitly. See [`docs/development-plan.md`](development-plan.md) for current status.
+> **Accuracy note**: This document describes the refactored architecture implemented in the repository.
+> See [`docs/development-plan.md`](development-plan.md) for full phase status.
 
 ---
 
@@ -12,35 +11,34 @@ Insight Copilot is structured as a pipeline of explicitly separated concerns:
 
 | Component | File(s) | Responsibility |
 |---|---|---|
-| **Streamlit UI** | `app.py` | Entry point. Renders the chat panel and execution-trace panel. Accepts user input and displays the final answer and chart artefacts. *(Shell only — not yet connected to agent.)* |
-| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and the single conditional routing edge into a compiled, executable graph. |
-| **AgentState** | `agent/state.py` | `TypedDict` that carries all data through the graph. Every node reads from and writes to this shared object. |
-| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` via Gemini's JSON mode. |
-| **Router** | `agent/router.py` | Pure-Python conditional edge function. Reads `selected_tools[current_step]` and returns the next node name string. No LLM call. |
+| **Streamlit UI** | `app.py` | Renders the chat panel, visible execution plan, tool trace, and Plotly charts. Automatically discovers dataset and manages per-session chat state. |
+| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing edges into a compiled, executable graph. |
+| **AgentState & State Loader** | `agent/state.py` | `TypedDict` separating persistent conversation state (`messages`) from clean per-turn execution state. `create_initial_state` resets execution fields on each turn. |
+| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` containing typed `PlanStep` parameters using Gemini structured output. |
+| **Router** | `agent/router.py` | Pure-Python conditional edge function. Validates step parameters and step dependencies (`depends_on`) before routing to tools. No LLM call. |
 | **`advance_step`** | `agent/router.py` | Lightweight node. Increments `current_step` by 1 after each tool completes, enabling the multi-step loop. |
-| **Tool nodes** | `tools/` | Deterministic execution nodes. Each appends a `ToolResult` to state. No LLM calls. *(Stub implementations — see Phase 1.)* |
-| **DuckDB** | `utils/data_loader.py` | In-process OLAP engine. All analytical queries run here. *(Interface defined; implementation pending.)* |
-| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini with free-form chat, returns the plain-English answer. |
+| **Tool Nodes** | `tools/` | Deterministic execution nodes (`metrics`, `trends`, `data_query`, `charts`). Parse typed Pydantic parameters, execute DuckDB SQL, and return `ToolResult`. |
+| **Data Layer & DuckDB** | `utils/data_loader.py` | Converts `Sales_Dataset_2024.xlsx` to `sales_dataset.parquet`, validates 2,000 rows & 10 canonical columns, and registers DuckDB `dataset` view. |
+| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini with free-form chat, and returns analyst-style plain-English answers without inventing numbers. |
 | **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation. Factory in `llm/factory.py`. |
-| **Schemas** | `models/schemas.py` | Pydantic contracts: `AnalysisPlan`, `PlanStep`, `ToolResult`, `Message`, enums. |
-| **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. |
+| **Schemas** | `models/schemas.py` | Pydantic contracts: `MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`, `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`. |
+| **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Injects dataset schema summary dynamically. |
 
 ---
 
 ## Architecture Diagram
 
-The diagram below reflects the actual compiled LangGraph graph as defined in
-[`agent/graph.py`](../agent/graph.py).
+The diagram below reflects the refactored architecture in [`agent/graph.py`](../agent/graph.py).
 
 ```mermaid
 flowchart TD
     U([User]) -->|query string| ST[Streamlit UI\napp.py]
-    ST -->|AgentState| START([START])
+    ST -->|create_initial_state| START([START])
 
     START --> PL[planner\nagent/planner.py]
     PL -->|intent, plan,\nselected_tools, current_step=0| RT[router\nagent/router.py]
 
-    RT -->|errors present| EH[error_handler]
+    RT -->|errors / failed dependency| EH[error_handler]
     RT -->|no tools selected OR\ncurrent_step >= len| SY[synthesizer\nagent/synthesizer.py]
     RT -->|selected_tools[current_step]| DQ[data_query\ntools/data_query.py]
     RT --> MT[metrics\ntools/metrics.py]
@@ -50,8 +48,10 @@ flowchart TD
     DQ & MT & TR & CH -->|ToolResult appended| SA[step_advance\nagent/router.py]
     SA -->|current_step + 1| RT
 
-    DQ & MT & TR -->|SQL| DB[(DuckDB\nutils/data_loader.py)]
+    DQ & MT & TR -->|Safe DuckDB SQL| DB[(DuckDB View 'dataset'\nsales_dataset.parquet)]
     DB -->|rows as list of dicts| DQ & MT & TR
+    
+    TR & MT & DQ -.->|data list| CH
 
     SY -->|final_answer,\nassistant Message| END_([END])
     EH -->|final_answer with error| END_
@@ -61,9 +61,45 @@ flowchart TD
         SY_LLM[chat\ntemperature=0.3]
     end
 
-    PL -.->|messages list| PL_LLM
-    SY -.->|messages list| SY_LLM
+    PL -.->|messages + schema summary| PL_LLM
+    SY -.->|messages + verified tool data| SY_LLM
 ```
+
+---
+
+## Data Layer & Parquet Runtime
+
+The canonical dataset for Insight Copilot is **`Sales_Dataset_2024.xlsx`**, bundled in `data/`.
+
+- **Source File**: `data/Sales_Dataset_2024.xlsx` (2,000 rows, 10 columns).
+- **Runtime File**: `data/sales_dataset.parquet` (automatically generated on first run).
+- **DuckDB View**: Registered in-memory as `dataset` over `read_parquet(...)`.
+
+### Canonical Schema (10 Fields)
+
+1. `Date` (TIMESTAMP, time)
+2. `Region` (VARCHAR, dimension)
+3. `Product` (VARCHAR, dimension)
+4. `Salesperson` (VARCHAR, dimension)
+5. `Units_Sold` (DOUBLE, metric)
+6. `Unit_Price` (DOUBLE, metric)
+7. `Category` (VARCHAR, dimension)
+8. `Revenue` (DOUBLE, metric)
+9. `Cost` (DOUBLE, metric)
+10. `Profit` (DOUBLE, metric)
+
+---
+
+## State Isolation & Turn Management
+
+`AgentState` is defined in [`agent/state.py`](../agent/state.py).
+
+`create_initial_state(query, history)` ensures:
+- **`messages`**: Preserved across turns for conversation history context.
+- **Per-Turn Execution State**: Reset cleanly at turn start (`current_step=0`, `tool_results=[]`, `chart_artifacts=[]`, `final_answer=None`, `errors=[]`, `plan=None`).
+
+This prevents previous-turn tool results, charts, or errors from leaking into subsequent questions.
+
 
 ---
 

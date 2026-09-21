@@ -12,8 +12,58 @@ contracts easy to unit-test in isolation.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
-from pydantic import BaseModel, Field
+from typing import Any, Literal
+from pydantic import BaseModel, Field, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Canonical Dataset Schema Constants
+# ---------------------------------------------------------------------------
+
+DATE_COLUMN = "Date"
+
+CATEGORICAL_COLUMNS = ["Region", "Product", "Salesperson", "Category"]
+
+NUMERIC_COLUMNS = ["Units_Sold", "Unit_Price", "Revenue", "Cost", "Profit"]
+
+CANONICAL_COLUMNS = [DATE_COLUMN] + CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# Dataset Metadata Schemas
+# ---------------------------------------------------------------------------
+
+
+class ColumnMetadata(BaseModel):
+    """Metadata description of a single dataset column."""
+
+    name: str
+    data_type: str = Field(..., description="Data type, e.g., 'datetime', 'str', 'float64'.")
+    semantic_role: Literal["time", "dimension", "metric"] = Field(
+        ..., description="Role of the column in analytical operations."
+    )
+    can_group: bool = Field(default=True, description="Whether column can be used in GROUP BY.")
+    can_metric: bool = Field(default=False, description="Whether column can be aggregated as a metric.")
+    can_time: bool = Field(default=False, description="Whether column can be used for temporal trends.")
+
+
+class DatasetSchema(BaseModel):
+    """Authoritative description of the dataset structure exposed to the planner."""
+
+    dataset_name: str = "Sales_Dataset_2024"
+    total_rows: int = 2000
+    columns: list[ColumnMetadata] = Field(default_factory=list)
+
+    def to_prompt_summary(self) -> str:
+        """Format a clear, concise text description for the LLM planner prompt."""
+        lines = [f"Dataset: {self.dataset_name} ({self.total_rows} rows)"]
+        lines.append("Available Columns:")
+        for col in self.columns:
+            lines.append(
+                f"- {col.name} ({col.data_type}, role: {col.semantic_role}) | "
+                f"groupable: {col.can_group}, metric: {col.can_metric}, temporal: {col.can_time}"
+            )
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -25,29 +75,15 @@ class Intent(str, Enum):
     """High-level analytical intent inferred by the planner."""
 
     DATA_QUERY = "data_query"
-    """Retrieve or filter raw rows from the dataset."""
-
     METRICS = "metrics"
-    """Compute aggregated numeric metrics (sum, average, count, rank, etc.)."""
-
     TREND = "trend"
-    """Analyse a value over time or across ordered categories."""
-
     CHART = "chart"
-    """Generate a visualisation from pre-computed data."""
-
     COMBINED = "combined"
-    """Multi-step plan that uses more than one analytical tool."""
-
     UNKNOWN = "unknown"
-    """Intent could not be determined; the planner should ask for clarification."""
 
 
 class ToolName(str, Enum):
-    """Canonical names for every executable tool in the agent.
-
-    Using an enum prevents typos and makes routing logic easy to test.
-    """
+    """Canonical names for executable tools in the agent."""
 
     DATA_QUERY = "data_query"
     METRICS = "metrics"
@@ -56,12 +92,137 @@ class ToolName(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Execution plan
+# Typed Tool Request Contracts
+# ---------------------------------------------------------------------------
+
+
+class MetricsRequest(BaseModel):
+    """Structured parameter contract for the metrics tool."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column (Units_Sold, Unit_Price, Revenue, Cost, Profit).",
+    )
+    aggregation: Literal["sum", "average", "avg", "count", "min", "max", "median"] = Field(
+        default="sum",
+        description="Aggregation operation to apply.",
+    )
+    group_by: str | list[str] | None = Field(
+        default=None,
+        description="Categorical column(s) or Date to group by.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Column equality filters (e.g. {'Region': 'North'}).",
+    )
+    limit: int | None = Field(
+        default=20,
+        ge=1,
+        le=500,
+        description="Maximum number of rows to return.",
+    )
+    sort: Literal["asc", "desc"] = Field(
+        default="desc",
+        description="Sort direction by the aggregated metric value.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        # Case-insensitive match against canonical numeric columns
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+
+class TrendsRequest(BaseModel):
+    """Structured parameter contract for the trends tool."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column to analyze over time.",
+    )
+    date_column: str = Field(
+        default="Date",
+        description="Temporal date column.",
+    )
+    granularity: Literal["day", "week", "month", "quarter", "year"] = Field(
+        default="month",
+        description="Time aggregation granularity.",
+    )
+    group_by: str | None = Field(
+        default=None,
+        description="Optional additional categorical grouping dimension.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional filters applied before trend aggregation.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("date_column")
+    @classmethod
+    def validate_date_column(cls, v: str) -> str:
+        if v.lower() != DATE_COLUMN.lower():
+            raise ValueError(f"Invalid date_column '{v}'. Must be '{DATE_COLUMN}'.")
+        return DATE_COLUMN
+
+
+class DataQueryRequest(BaseModel):
+    """Structured parameter contract for the data_query tool."""
+
+    columns: list[str] | None = Field(
+        default=None,
+        description="Selected columns to return; None returns all canonical columns.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Equality or comparative filters.",
+    )
+    sort_by: str | None = Field(
+        default=None,
+        description="Column name to sort by.",
+    )
+    sort_order: Literal["asc", "desc"] = Field(
+        default="desc",
+        description="Sort order direction.",
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum raw rows to return.",
+    )
+
+
+class ChartRequest(BaseModel):
+    """Structured parameter contract for the charts tool."""
+
+    chart_type: Literal["bar", "line", "scatter"] = Field(
+        ...,
+        description="Type of Plotly chart to render.",
+    )
+    x: str = Field(..., description="Column for the x-axis.")
+    y: str = Field(..., description="Column for the y-axis.")
+    color: str | None = Field(default=None, description="Optional column for color grouping.")
+    title: str | None = Field(default=None, description="Optional chart title.")
+
+
+# ---------------------------------------------------------------------------
+# Execution Plan Schemas
 # ---------------------------------------------------------------------------
 
 
 class PlanStep(BaseModel):
-    """A single step in the execution plan."""
+    """A single step in the execution plan containing structured parameters."""
 
     step_number: int = Field(..., ge=1, description="1-based position in the plan.")
     tool: ToolName = Field(..., description="The tool to invoke at this step.")
@@ -69,24 +230,18 @@ class PlanStep(BaseModel):
         ...,
         description="Human-readable description of what this step does.",
     )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured tool parameters matching the target tool's request contract.",
+    )
     depends_on: list[int] = Field(
         default_factory=list,
-        description=(
-            "List of step_numbers that must complete before this step can run. "
-            "Empty means this step can start immediately."
-        ),
+        description="List of step_numbers that must complete before this step can run.",
     )
 
 
 class AnalysisPlan(BaseModel):
-    """Structured plan produced by the Planner node.
-
-    The plan is intentionally *visible*: it will be surfaced in the UI so
-    the user can understand what the agent is about to do before it does it.
-
-    The LLM produces this as structured output; no hidden chain-of-thought
-    is stored here.
-    """
+    """Structured plan produced by the Planner node."""
 
     intent: Intent = Field(
         ...,
@@ -94,10 +249,7 @@ class AnalysisPlan(BaseModel):
     )
     rationale: str = Field(
         ...,
-        description=(
-            "Short (≤3 sentences) plain-English explanation of why this plan "
-            "was chosen.  This is the *only* reasoning exposed to the user."
-        ),
+        description="Short (≤3 sentences) plain-English explanation of why this plan was chosen.",
     )
     steps: list[PlanStep] = Field(
         ...,
@@ -106,12 +258,12 @@ class AnalysisPlan(BaseModel):
     )
     selected_tools: list[ToolName] = Field(
         ...,
-        description="Flat list of tools referenced by this plan (may contain duplicates if a tool is used twice).",
+        description="Flat list of tools referenced by this plan.",
     )
 
 
 # ---------------------------------------------------------------------------
-# Tool result
+# Tool Result & Conversation Message
 # ---------------------------------------------------------------------------
 
 
@@ -123,21 +275,12 @@ class ToolResult(BaseModel):
     success: bool = Field(..., description="Whether the tool completed without error.")
     data: Any = Field(
         default=None,
-        description=(
-            "Serialisable payload returned by the tool.  "
-            "For data_query / metrics / trends this is typically a list of dicts. "
-            "For charts this is a Plotly figure dict (fig.to_dict())."
-        ),
+        description="Serialisable payload returned by the tool.",
     )
     error: str | None = Field(
         default=None,
         description="Error message if success=False, otherwise None.",
     )
-
-
-# ---------------------------------------------------------------------------
-# Conversation message
-# ---------------------------------------------------------------------------
 
 
 class Role(str, Enum):
@@ -155,5 +298,6 @@ class Message(BaseModel):
     content: str
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Optional bag for attaching structured data to a message (e.g., plan, tool trace).",
+        description="Optional bag for attaching structured data to a message.",
     )
+

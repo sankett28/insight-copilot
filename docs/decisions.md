@@ -137,7 +137,7 @@ at the boundary where LLM output enters the system.
 The agent needs to execute analytical queries — aggregations, rankings, window
 functions, filters — against a tabular dataset. These queries must be
 deterministic (same input → same output), auditable (readable by a human
-reviewer), and fast (< 1 second for typical dataset sizes of ~10k rows).
+reviewer), and fast (< 1 second for the canonical dataset size of 2,000 rows).
 
 ### Decision
 
@@ -150,9 +150,9 @@ Pandas is used only for data transport (converting DuckDB results to
 
 **Supabase / PostgreSQL**
 A hosted database server introduces network latency, authentication, connection
-pooling, and infrastructure management. For a single-file dataset of tens of
-thousands of rows, this is disproportionate. Rejected — out of scope and
-unnecessary complexity for the assignment.
+pooling, and infrastructure management. For a single-file dataset of 2,000 rows
+(Sales_Dataset_2024.xlsx → Parquet), this is disproportionate. Rejected — out of
+scope and unnecessary complexity for the assignment.
 
 **SQLite**
 SQLite is designed for transactional (OLTP) workloads. It lacks native support
@@ -177,8 +177,10 @@ function gap. Rejected for the same reasons as SQLite above.
 
 ### Consequences
 
-- **Positive**: DuckDB reads CSV, Parquet, and Excel natively without a
-  separate ETL step. `LOAD csv` is a single function call.
+- **Positive**: DuckDB reads Parquet and Excel natively. The project uses an
+  Excel → Parquet pipeline (`ensure_parquet_dataset()`) so all queries target
+  the Parquet file via a registered view — no repeated file-format conversion
+  overhead at query time.
 - **Positive**: SQL is explicit — every query can be read, reviewed, and
   logged independently.
 - **Positive**: In-process — no server to start, no port to open, no

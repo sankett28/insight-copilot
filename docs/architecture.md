@@ -1,46 +1,68 @@
 # Architecture — Insight Copilot
 
-> **Accuracy note**: This document describes the refactored architecture implemented in the repository.
+> **Accuracy note**: This document describes the architecture as it exists in the
+> current repository and as it is designed to evolve. Phase 1 is complete.
+> Phase 2 is the current design target.
 > See [`docs/development-plan.md`](development-plan.md) for full phase status.
 
 ---
 
 ## System Overview
 
-Insight Copilot is structured as a pipeline of explicitly separated concerns:
+Insight Copilot is an **analytical agent**, not a chatbot with SQL attached.
+The distinction matters architecturally:
+
+- A chatbot answers questions by generating text.
+- An analytical agent **plans an investigation**, **executes deterministic tools**
+  to gather evidence, and **synthesises grounded conclusions** from that evidence.
+
+Every number in Insight Copilot's answers comes from DuckDB, not from the LLM.
+The LLM contributes language — understanding, planning, and narration — not computation.
+
+```
+LLM decides.
+Deterministic code executes.
+LLM explains.
+```
+
+### Major Components
 
 | Component | File(s) | Responsibility |
 |---|---|---|
-| **Streamlit UI** | `app.py` | Renders the chat panel, visible execution plan, tool trace, and Plotly charts. Automatically discovers dataset and manages per-session chat state. |
-| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing edges into a compiled, executable graph. |
+| **Streamlit UI** | `app.py` | Renders chat panel, visible execution plan, tool trace, and Plotly charts. |
+| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing into a compiled executable graph. |
 | **AgentState & State Loader** | `agent/state.py` | `TypedDict` separating persistent conversation state (`messages`) from clean per-turn execution state. `create_initial_state` resets execution fields on each turn. |
-| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` containing typed `PlanStep` parameters using Gemini structured output. |
-| **Router** | `agent/router.py` | Pure-Python conditional edge function. Validates step parameters and step dependencies (`depends_on`) before routing to tools. No LLM call. |
-| **`advance_step`** | `agent/router.py` | Lightweight node. Increments `current_step` by 1 after each tool completes, enabling the multi-step loop. |
-| **Tool Nodes** | `tools/` | Deterministic execution nodes (`metrics`, `trends`, `data_query`, `charts`). Parse typed Pydantic parameters, execute DuckDB SQL, and return `ToolResult`. |
-| **Data Layer & DuckDB** | `utils/data_loader.py` | Converts `Sales_Dataset_2024.xlsx` to `sales_dataset.parquet`, validates 2,000 rows & 10 canonical columns, and registers DuckDB `dataset` view. |
-| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini with free-form chat, and returns analyst-style plain-English answers without inventing numbers. |
+| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using Gemini structured output. |
+| **Router** | `agent/router.py` | Pure-Python conditional edge. Validates step dependencies (`depends_on`) and dispatches to the correct tool node. No LLM call. |
+| **`advance_step`** | `agent/router.py` | Increments `current_step` after each tool completes, driving the multi-step loop. |
+| **Analytical Capability Nodes** | `tools/` | Deterministic execution nodes. Parse validated Pydantic parameters, execute DuckDB SQL or Plotly renders, and return `ToolResult`. |
+| **Data Layer** | `utils/data_loader.py` | Converts `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, validates schema and row count, registers the DuckDB `dataset` view. |
+| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini, and returns an analyst-style answer grounded entirely in tool evidence. |
 | **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation. Factory in `llm/factory.py`. |
 | **Schemas** | `models/schemas.py` | Pydantic contracts: `MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`, `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`. |
-| **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Injects dataset schema summary dynamically. |
+| **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Dataset schema summary injected dynamically. |
 
 ---
 
 ## Architecture Diagram
 
-The diagram below reflects the refactored architecture in [`agent/graph.py`](../agent/graph.py).
-
 ```mermaid
 flowchart TD
-    U([User]) -->|query string| ST[Streamlit UI\napp.py]
+    U([User]) -->|natural language question| ST[Streamlit UI\napp.py]
     ST -->|create_initial_state| START([START])
 
     START --> PL[planner\nagent/planner.py]
     PL -->|intent, plan,\nselected_tools, current_step=0| RT[router\nagent/router.py]
 
+    subgraph CR["Capability Registry (Phase 2 Design Target)"]
+        CAPLIST["Available capabilities\n• data_query  • metrics  • trends  • charts\n• data_profile  • compare  • contribution\n• profitability  • variance\n• anomaly_detection  • correlation  • segmentation"]
+    end
+
+    PL -. "schema + capability list\n(Phase 2)" .-> CR
+
     RT -->|errors / failed dependency| EH[error_handler]
-    RT -->|no tools selected OR\ncurrent_step >= len| SY[synthesizer\nagent/synthesizer.py]
-    RT -->|selected_tools[current_step]| DQ[data_query\ntools/data_query.py]
+    RT -->|no tools OR step >= len| SY[synthesizer\nagent/synthesizer.py]
+    RT -->|data_query| DQ[data_query\ntools/data_query.py]
     RT --> MT[metrics\ntools/metrics.py]
     RT --> TR[trends\ntools/trends.py]
     RT --> CH[charts\ntools/charts.py]
@@ -48,10 +70,10 @@ flowchart TD
     DQ & MT & TR & CH -->|ToolResult appended| SA[step_advance\nagent/router.py]
     SA -->|current_step + 1| RT
 
-    DQ & MT & TR -->|Safe DuckDB SQL| DB[(DuckDB View 'dataset'\nsales_dataset.parquet)]
+    DQ & MT & TR -->|parameterised SQL| DB[(DuckDB View 'dataset'\nsales_dataset.parquet)]
     DB -->|rows as list of dicts| DQ & MT & TR
-    
-    TR & MT & DQ -.->|data list| CH
+
+    TR & MT & DQ -..->|data list consumed by| CH
 
     SY -->|final_answer,\nassistant Message| END_([END])
     EH -->|final_answer with error| END_
@@ -61,53 +83,500 @@ flowchart TD
         SY_LLM[chat\ntemperature=0.3]
     end
 
-    PL -.->|messages + schema summary| PL_LLM
-    SY -.->|messages + verified tool data| SY_LLM
+    PL -.- |messages + schema summary| PL_LLM
+    SY -.- |messages + verified tool data| SY_LLM
 ```
+
+> The **Capability Registry** box above is a **Phase 2 design target**.
+> It does not yet exist as a runtime component.
+> Currently the planner is aware of four capabilities injected via the system prompt.
+> In Phase 2 it will be formally registered so the planner prompt is generated
+> from a single authoritative source.
 
 ---
 
 ## Data Layer & Parquet Runtime
 
-The canonical dataset for Insight Copilot is **`Sales_Dataset_2024.xlsx`**, bundled in `data/`.
+The canonical dataset for Insight Copilot is **`Sales_Dataset_2024.xlsx`**,
+bundled in `data/`.
 
-- **Source File**: `data/Sales_Dataset_2024.xlsx` (2,000 rows, 10 columns).
-- **Runtime File**: `data/sales_dataset.parquet` (automatically generated on first run).
-- **DuckDB View**: Registered in-memory as `dataset` over `read_parquet(...)`.
+| Step | File | How |
+|---|---|---|
+| Source | `data/Sales_Dataset_2024.xlsx` | 2,000 rows, 10 columns — the immutable original |
+| Runtime | `data/sales_dataset.parquet` | Auto-generated by `ensure_parquet_dataset()` on first run |
+| DuckDB View | In-memory `dataset` | Registered by `get_connection()` via `CREATE VIEW dataset AS SELECT * FROM read_parquet(...)` |
+
+The source Excel file is **never modified**. The Parquet file is a reproducible
+artefact — delete it and it regenerates. All analytical queries target the
+DuckDB view, never the original file.
 
 ### Canonical Schema (10 Fields)
 
-1. `Date` (TIMESTAMP, time)
-2. `Region` (VARCHAR, dimension)
-3. `Product` (VARCHAR, dimension)
-4. `Salesperson` (VARCHAR, dimension)
-5. `Units_Sold` (DOUBLE, metric)
-6. `Unit_Price` (DOUBLE, metric)
-7. `Category` (VARCHAR, dimension)
-8. `Revenue` (DOUBLE, metric)
-9. `Cost` (DOUBLE, metric)
-10. `Profit` (DOUBLE, metric)
+| Column | DuckDB Type | Semantic Role | Groupable | Metric | Temporal |
+|---|---|---|---|---|---|
+| `Date` | TIMESTAMP | time | ✓ | — | ✓ |
+| `Region` | VARCHAR | dimension | ✓ | — | — |
+| `Product` | VARCHAR | dimension | ✓ | — | — |
+| `Salesperson` | VARCHAR | dimension | ✓ | — | — |
+| `Category` | VARCHAR | dimension | ✓ | — | — |
+| `Units_Sold` | DOUBLE | metric | — | ✓ | — |
+| `Unit_Price` | DOUBLE | metric | — | ✓ | — |
+| `Revenue` | DOUBLE | metric | — | ✓ | — |
+| `Cost` | DOUBLE | metric | — | ✓ | — |
+| `Profit` | DOUBLE | metric | — | ✓ | — |
+
+> **No other columns exist**. Do not reference `Order ID`, `Customer`,
+> `Segment`, `Ship Date`, `Discount`, `Sub-Category`, `Country`, `State`,
+> or `City` anywhere in prompts, tests, or documentation.
+> Those belong to a different dataset.
 
 ---
 
-## State Isolation & Turn Management
+## Data Quality & Cleaning Philosophy
 
-`AgentState` is defined in [`agent/state.py`](../agent/state.py).
+Data quality findings are **observable evidence**, not silent corrections.
 
-`create_initial_state(query, history)` ensures:
-- **`messages`**: Preserved across turns for conversation history context.
-- **Per-Turn Execution State**: Reset cleanly at turn start (`current_step=0`, `tool_results=[]`, `chart_artifacts=[]`, `final_answer=None`, `errors=[]`, `plan=None`).
+```
+RAW SOURCE (Sales_Dataset_2024.xlsx)
+        ↓
+VALIDATION / PROFILING (validate_dataset, data_profile capability)
+        ↓
+RUNTIME REPRESENTATION (sales_dataset.parquet → DuckDB dataset view)
+        ↓
+ANALYSIS (deterministic tool execution)
+```
 
-This prevents previous-turn tool results, charts, or errors from leaking into subsequent questions.
+### Principles
 
+1. **Do not silently mutate the canonical source.** If 7 rows contain negative
+   profit, the agent must report `"7 rows contain negative profit."` rather
+   than deleting them before analysis.
+
+2. **Data quality findings become explicit `ToolResult` evidence.** The
+   `data_profile` capability (Phase 2) will surface missing values, duplicates,
+   invalid dates, and statistical anomalies as structured output that the
+   synthesizer can narrate honestly.
+
+3. **Any future cleaning or transformation layer must be:**
+   - Explicit — a named, documented transformation step
+   - Deterministic — same input always produces same output
+   - Testable — a unit test can verify the transformation
+   - Non-destructive — the original source file is unchanged
+
+4. **Validation at load time** (`validate_dataset()`) checks structural
+   integrity (row count, column presence, type compatibility) but does not
+   modify rows. Structural failures abort loading with a clear error message.
+
+---
+
+## Capability Registry (Design Concept — Phase 2)
+
+### Why a Registry
+
+Currently the planner learns which tools exist from the system prompt string
+in `utils/prompts.py`. As the number of analytical capabilities grows, this
+becomes a maintenance burden:
+
+- Adding a new capability requires editing the prompt string.
+- There is no single authoritative place to look up what a capability accepts,
+  produces, or depends on.
+- The router's `_TOOL_NODE_MAP` and the planner's prompt list the same tools
+  independently — two sources of truth.
+
+The **Capability Registry** resolves this by making one module the authoritative
+inventory of all available capabilities. Everything else — the planner prompt,
+the router's dispatch map, validation logic — is derived from the registry.
+
+### Capability Definition
+
+Each registered capability has the following attributes:
+
+```
+Capability
+├── name              str          — canonical identifier used in plans and routing
+├── category          str          — DATA_ACCESS | CORE_ANALYSIS | ADVANCED | PRESENTATION
+├── description       str          — one-sentence description for the planner prompt
+├── input_schema      type[BaseModel]  — Pydantic model that validates PlanStep.parameters
+├── output_schema     str          — description of what ToolResult.data will contain
+├── deterministic     bool         — True for all DuckDB/Plotly tools; False if LLM involved
+├── dependencies      list[str]    — capabilities that should run before this one
+├── independent       bool         — can run as the first (or only) step in a plan
+└── consumes_previous_results bool — requires data from a prior ToolResult (e.g. charts)
+```
+
+### Phase 2 Behaviour
+
+In Phase 2 the planner prompt will be generated dynamically from the registry:
+
+```python
+# Pseudocode — not yet implemented
+registry.to_planner_context() -> str
+# Returns a formatted summary of all registered capabilities,
+# their input parameters, and their output contracts,
+# injected into the system prompt alongside the dataset schema.
+```
+
+The router's dispatch map will also be derived from the registry:
+
+```python
+# Pseudocode — not yet implemented
+registry.to_node_map() -> dict[str, str]
+# Returns {capability_name: langgraph_node_name} for conditional edge wiring.
+```
+
+> **Do not create a second source of truth.** Once the registry exists, the
+> current `_TOOL_NODE_MAP` in `router.py` and the capability list in
+> `PLANNER_SYSTEM_PROMPT` should be generated from it.
+
+---
+
+## Capability Categories & Implementation Status
+
+### DATA ACCESS
+
+| Capability | Description | Status |
+|---|---|---|
+| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | 🔲 Phase 2 |
+| `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Phase 1 — Implemented |
+
+### CORE ANALYSIS
+
+| Capability | Description | Status |
+|---|---|---|
+| `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Phase 1 — Implemented |
+| `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Phase 1 — Implemented |
+| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | 🔲 Phase 2 |
+| `contribution` | Percentage and absolute contribution of segments to a total | 🔲 Phase 2 |
+| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | 🔲 Phase 2 |
+| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | 🔲 Phase 2 |
+
+### ADVANCED ANALYSIS
+
+| Capability | Description | Status |
+|---|---|---|
+| `anomaly_detection` | Statistical detection of unusual observations (IQR, z-score) — no ML required | 🔲 Phase 3 |
+| `correlation` | Pearson correlation between numeric fields — explicitly not causal inference | 🔲 Phase 3 |
+| `segmentation` | Cross-dimensional analysis: Region × Category, Salesperson × Category, etc. | 🔲 Phase 3 |
+
+### PRESENTATION
+
+| Capability | Description | Status |
+|---|---|---|
+| `charts` | Plotly figure generation (bar, line, scatter) from prior ToolResult data — no DuckDB query | ✅ Phase 1 — Implemented |
+
+---
+
+## Capability Rationale
+
+### `data_profile`
+
+**User question**: "What does this dataset look like?"
+
+**Why the four Phase 1 tools are insufficient**:
+`data_query` can return raw rows and `metrics` can return counts, but neither
+provides a structured overview of data quality, cardinality, or the date range
+in a single, purpose-built output.
+
+**What it should produce**:
+```json
+{
+  "row_count": 2000,
+  "column_count": 10,
+  "date_range": {"min": "2024-01-01", "max": "2024-12-31"},
+  "numeric_ranges": {
+    "Revenue": {"min": 120.0, "max": 8400.0, "mean": 2150.3},
+    "Profit": {"min": -210.0, "max": 3100.0}
+  },
+  "categorical_cardinality": {
+    "Region": 4, "Category": 3, "Product": 25, "Salesperson": 10
+  },
+  "data_quality_warnings": [
+    "7 rows contain negative Profit",
+    "0 missing values across all columns"
+  ]
+}
+```
+
+**Deterministic**: Yes (DuckDB aggregate queries).
+**Parameters**: None required; runs against the registered `dataset` view.
+**Dependencies**: None.
+
+---
+
+### `compare`
+
+**User questions**:
+- "How did North compare to South this year?"
+- "Was Q1 better than Q2 for revenue?"
+- "Compare Technology vs Furniture profit."
+
+**Why `metrics` alone is insufficient**:
+`metrics` can compute aggregations for a single group at a time.
+`compare` needs two parallel aggregations with automatic delta computation
+(absolute and percentage), presented as a side-by-side structure the
+synthesizer can narrate directly.
+
+**What it should produce**:
+```json
+{
+  "metric": "Revenue",
+  "aggregation": "sum",
+  "entity_a": {"label": "North", "value": 425000.0},
+  "entity_b": {"label": "South", "value": 318000.0},
+  "absolute_delta": 107000.0,
+  "pct_delta": 33.6
+}
+```
+
+**Deterministic**: Yes.
+**Input parameters**: `metric`, `aggregation`, `dimension`, `value_a`, `value_b`, optional `filters`.
+**Dependencies**: None (can run independently).
+
+---
+
+### `contribution`
+
+**User questions**:
+- "Which region drives the most revenue?"
+- "What percentage of total profit comes from Technology?"
+- "Rank categories by their contribution to total sales."
+
+**Why `metrics` alone is insufficient**:
+`metrics` with `GROUP BY` returns absolute values per group. `contribution`
+adds the percentage-of-total computation (relative share), which requires
+knowing the grand total — a two-pass query or a window function. The output
+is a ranked list of absolute + relative contributions, not just raw values.
+
+**What it should produce**:
+```json
+[
+  {"Region": "North", "Revenue": 425000.0, "pct_of_total": 38.2},
+  {"Region": "West",  "Revenue": 310000.0, "pct_of_total": 27.9},
+  ...
+]
+```
+
+**Deterministic**: Yes (DuckDB window function: `SUM(metric) OVER () AS total`).
+**Input parameters**: `metric`, `dimension`, optional `filters`.
+**Dependencies**: None.
+
+---
+
+### `profitability`
+
+**User questions**:
+- "Which products have the highest profit margin?"
+- "Is the West region more profitable than the East?"
+- "Which category generates revenue but low profit?"
+
+**Why `metrics` alone is insufficient**:
+Profit margin is a derived metric (`Profit / Revenue`). `metrics` can aggregate
+either `Profit` or `Revenue`, but not compute the ratio in a single step.
+`profitability` is a dedicated capability that expresses the relationship between
+revenue, cost, profit, and margin simultaneously — preventing the common mistake
+of treating high revenue as equivalent to high profitability.
+
+**Derived metric**:
+```
+Profit Margin = Profit / Revenue
+```
+
+**What it should produce**:
+```json
+[
+  {
+    "Product": "Widget A",
+    "Revenue": 84000.0,
+    "Cost": 52000.0,
+    "Profit": 32000.0,
+    "profit_margin_pct": 38.1
+  },
+  ...
+]
+```
+
+**Deterministic**: Yes.
+**Input parameters**: `dimension` (group by column), optional `filters`, `limit`.
+**Dependencies**: None.
+
+---
+
+### `variance`
+
+**User questions**:
+- "How did profit change from H1 to H2?"
+- "Which months showed the biggest month-over-month revenue change?"
+- "Compare this quarter's performance to last quarter."
+
+**Why `trends` alone is insufficient**:
+`trends` returns a time series. `variance` computes the **change between adjacent
+periods** — the delta — which requires a self-join or a LAG window function.
+The output is designed specifically for "what changed and by how much" questions.
+
+**What it should produce**:
+```json
+[
+  {
+    "period": "2024-01",
+    "Revenue": 185000.0,
+    "prev_Revenue": null,
+    "absolute_change": null,
+    "pct_change": null
+  },
+  {
+    "period": "2024-02",
+    "Revenue": 203000.0,
+    "prev_Revenue": 185000.0,
+    "absolute_change": 18000.0,
+    "pct_change": 9.73
+  },
+  ...
+]
+```
+
+**Deterministic**: Yes (DuckDB `LAG()` window function).
+**Input parameters**: `metric`, `granularity`, optional `group_by`, optional `filters`.
+**Dependencies**: None (can run independently, or after `trends` for context).
+
+---
+
+### `anomaly_detection`
+
+**User questions**:
+- "Are there any unusually large or small orders?"
+- "Which salespeople show unexpectedly low profit margins?"
+- "Find outliers in the revenue data."
+
+**Implementation approach (deterministic, no ML)**:
+- **IQR method**: Flag values below `Q1 - 1.5×IQR` or above `Q3 + 1.5×IQR`.
+- **Z-score method**: Flag values where `|z| > threshold` (default: 2.5).
+
+Both are computable with DuckDB `PERCENTILE_CONT` and standard window functions.
+
+**Important constraint**: Correlation does not establish causation.
+Anomaly detection surfaces observations, not explanations.
+The synthesizer must present flagged rows as *observations requiring investigation*,
+not as errors or fraud.
+
+**Deterministic**: Yes.
+**Input parameters**: `metric`, `method` (`iqr` | `zscore`), optional `group_by`, optional `threshold`.
+**Dependencies**: None.
+**Phase**: 3.
+
+---
+
+### `correlation`
+
+**User questions**:
+- "Is there a relationship between Units_Sold and Revenue?"
+- "Does higher Unit_Price correlate with lower Units_Sold?"
+
+**Available numeric fields**: `Units_Sold`, `Unit_Price`, `Revenue`, `Cost`, `Profit`.
+
+**Mandatory disclaimer in all synthesizer output**:
+> Correlation does not establish causation.
+
+**Deterministic**: Yes (DuckDB `CORR()` aggregate function).
+**Input parameters**: `field_a`, `field_b`, optional `group_by`, optional `filters`.
+**Phase**: 3.
+
+---
+
+### `segmentation`
+
+**User questions**:
+- "Which region-category combinations are most profitable?"
+- "How does each salesperson perform across product categories?"
+
+**Examples**:
+- `Region × Category` — 4 × 3 = 12 cells
+- `Region × Product` — multi-level breakdown
+- `Salesperson × Category` — performance matrix
+
+**Deterministic**: Yes (DuckDB multi-column `GROUP BY`).
+**Input parameters**: `metric`, `dimensions` (list of 2 columns), optional `filters`.
+**Phase**: 3.
+
+---
+
+## Investigation Workflow
+
+The agent does not treat every user question as a one-shot query.
+Complex questions require a **multi-step investigation** where later steps
+consume evidence produced by earlier steps.
+
+### Workflow Model
+
+```
+User question
+      ↓
+Investigation plan (AnalysisPlan)
+      ↓
+Capability selection (ordered PlanSteps with depends_on)
+      ↓
+Dependency-aware execution (Router validates before dispatching)
+      ↓
+Deterministic evidence (ToolResults)
+      ↓
+Grounded synthesis (Synthesizer narrates only verified evidence)
+```
+
+**Principle: Evidence before explanation.**
+
+Every analytical claim in the synthesizer's output must be traceable to
+one or more `ToolResult` objects. The synthesizer is not permitted to
+introduce numbers, causes, or conclusions that did not appear in a `ToolResult`.
+
+### Concrete Investigation Example
+
+**User question**: *"Why did profit decline in the second half of 2024?"*
+
+This question cannot be answered with a single tool call.
+A correct investigation plan:
+
+```
+Step 1 — trends
+  metric: Profit, granularity: month
+  Purpose: Confirm whether profit actually declined and identify the period.
+  depends_on: []
+
+Step 2 — compare
+  metric: Profit, aggregation: sum, entity_a: H1 (Jan–Jun), entity_b: H2 (Jul–Dec)
+  Purpose: Quantify the H1 vs H2 gap precisely.
+  depends_on: [1]
+
+Step 3 — contribution
+  metric: Profit, dimension: Region
+  Purpose: Identify which regions drove the most decline.
+  depends_on: [2]
+
+Step 4 — profitability
+  dimension: Category
+  Purpose: Identify whether the margin changed even if revenue stayed flat.
+  depends_on: []
+
+Step 5 — charts
+  chart_type: line, x: period, y: total_profit
+  Purpose: Visualise the monthly trend from Step 1.
+  depends_on: [1]
+
+Step 6 — synthesizer (not a tool, the terminal node)
+  Receives: ToolResults from Steps 1–5.
+  Produces: An evidence-grounded explanation using only verified numbers.
+  Must not invent causes. Must attribute every claim to a step number.
+```
+
+The synthesizer's role in this investigation is **narrative**, not analytical.
+It is explicitly prohibited from saying *"profit declined because X"* unless
+a ToolResult demonstrated that X changed in the relevant period.
 
 ---
 
 ## LangGraph State
 
 `AgentState` is defined in [`agent/state.py`](../agent/state.py) as a
-`TypedDict` with `total=False` (all keys optional). LangGraph uses it as the
-single shared memory object that every node reads from and writes to.
+`TypedDict` with `total=False`. LangGraph uses it as the single shared
+memory object that every node reads from and writes to.
 
 Fields with `Annotated[list[X], operator.add]` use a **reducer**: LangGraph
 merges node return values by *appending* to the existing list rather than
@@ -120,15 +589,15 @@ replacing it. All other fields use **last-write-wins**.
 #### `messages`
 
 ```python
-messages: Annotated[list[Message], operator.add]
+messages: list[Message]
 ```
 
 | | |
 |---|---|
-| **Type** | `list[Message]` (Pydantic model: `role: Role`, `content: str`, `metadata: dict`) |
+| **Type** | `list[Message]` (Pydantic: `role: Role`, `content: str`, `metadata: dict`) |
 | **Reducer** | `operator.add` — each node appends; no node can overwrite history |
-| **Purpose** | Full conversation history across all turns. The planner reads the last 10 entries for context. |
-| **Written by** | Synthesizer (appends one `Message(role=ASSISTANT, content=final_answer)` per turn) |
+| **Purpose** | Full conversation history across all turns. Planner reads last 10 entries. |
+| **Written by** | Synthesizer (appends one `Message(role=ASSISTANT)` per turn) |
 | **Read by** | Planner (last-10 slice for multi-turn context) |
 
 ---
@@ -143,7 +612,7 @@ query: str
 |---|---|
 | **Type** | `str` |
 | **Reducer** | Last-write-wins |
-| **Purpose** | The raw natural-language question for the current turn. Reset each time the user submits a new query. |
+| **Purpose** | Raw natural-language question for the current turn. Reset each new query. |
 | **Written by** | Application layer (before graph invocation) |
 | **Read by** | Planner, Synthesizer |
 
@@ -157,11 +626,11 @@ intent: str
 
 | | |
 |---|---|
-| **Type** | `str` (mirrors `Intent` enum value: `"data_query"`, `"metrics"`, `"trend"`, `"chart"`, `"combined"`, `"unknown"`) |
+| **Type** | `str` (mirrors `Intent` enum: `"data_query"`, `"metrics"`, `"trend"`, `"chart"`, `"combined"`, `"unknown"`) |
 | **Reducer** | Last-write-wins |
-| **Purpose** | Classified analytical intent. Written as a plain string so it can be displayed directly in the UI trace panel. |
+| **Purpose** | Classified analytical intent. Written as plain string for direct UI display. |
 | **Written by** | Planner |
-| **Read by** | UI (trace display — not yet connected) |
+| **Read by** | UI trace panel |
 
 ---
 
@@ -175,9 +644,9 @@ plan: AnalysisPlan | None
 |---|---|
 | **Type** | `AnalysisPlan` (Pydantic: `intent`, `rationale`, `steps: list[PlanStep]`, `selected_tools`) or `None` |
 | **Reducer** | Last-write-wins |
-| **Purpose** | The structured execution plan produced by the planner. `None` until the planner runs, or if planning fails. |
+| **Purpose** | Structured execution plan. `None` until the planner runs or if planning fails. |
 | **Written by** | Planner |
-| **Read by** | Synthesizer (passes `plan.rationale` and step list into the synthesis prompt); UI (trace display) |
+| **Read by** | Router (reads `plan.steps[current_step]` for parameter extraction and dependency validation), Synthesizer (rationale for synthesis prompt), UI (trace display) |
 
 ---
 
@@ -191,9 +660,9 @@ selected_tools: list[ToolName]
 |---|---|
 | **Type** | `list[ToolName]` (enum: `DATA_QUERY`, `METRICS`, `TRENDS`, `CHARTS`) |
 | **Reducer** | Last-write-wins |
-| **Purpose** | Ordered list of tools to run this turn. Derived directly from `plan.selected_tools`. The Router indexes into this list using `current_step`. |
+| **Purpose** | Ordered list of capabilities to run this turn. Derived from `plan.selected_tools`. |
 | **Written by** | Planner |
-| **Read by** | Router |
+| **Read by** | Router (bounds check: `current_step >= len(selected_tools)`) |
 
 ---
 
@@ -207,25 +676,25 @@ current_step: int
 |---|---|
 | **Type** | `int` |
 | **Reducer** | Last-write-wins |
-| **Purpose** | Zero-based index into `selected_tools`. Tracks which tool to dispatch to next. Reset to `0` by the Planner at the start of each turn. |
+| **Purpose** | Zero-based index into `plan.steps`. Tracks which capability to dispatch next. Reset to `0` by Planner each turn. |
 | **Written by** | Planner (resets to `0`), `advance_step` node (increments by `1`) |
-| **Read by** | Router |
+| **Read by** | Router (dispatch decision), all tool nodes (to identify current `PlanStep`) |
 
 ---
 
 #### `tool_results`
 
 ```python
-tool_results: Annotated[list[ToolResult], operator.add]
+tool_results: list[ToolResult]
 ```
 
 | | |
 |---|---|
 | **Type** | `list[ToolResult]` (Pydantic: `tool`, `step_number`, `success: bool`, `data: Any`, `error: str \| None`) |
-| **Reducer** | `operator.add` — each tool appends its result; earlier results are never overwritten |
-| **Purpose** | Accumulated outputs from every tool execution in this turn. The Synthesizer uses this to compose the final answer. |
+| **Reducer** | `operator.add` — each tool appends; earlier results are never overwritten |
+| **Purpose** | Accumulated evidence from every capability execution in this turn. |
 | **Written by** | Each tool node (appends one `ToolResult` per invocation) |
-| **Read by** | Synthesizer, Charts tool (reads prior data results to render) |
+| **Read by** | Synthesizer (composes final answer), Charts tool (reads prior data), Router (dependency validation) |
 
 ---
 
@@ -238,10 +707,10 @@ chart_artifacts: list[dict[str, Any]]
 | | |
 |---|---|
 | **Type** | `list[dict]` — each dict is a Plotly figure serialised via `fig.to_dict()` |
-| **Reducer** | Last-write-wins |
-| **Purpose** | Plotly figures separated from the text answer so the UI can render them independently. |
-| **Written by** | Charts tool *(not yet implemented)* |
-| **Read by** | Streamlit UI *(not yet connected)* |
+| **Reducer** | Last-write-wins (list is manually accumulated by the charts tool) |
+| **Purpose** | Plotly figures separated from the text answer so the UI renders them independently. |
+| **Written by** | Charts tool (`render_chart_from_data` → `fig.to_dict()`) |
+| **Read by** | Streamlit UI (`st.plotly_chart`) |
 
 ---
 
@@ -255,7 +724,7 @@ final_answer: str | None
 |---|---|
 | **Type** | `str` or `None` |
 | **Reducer** | Last-write-wins |
-| **Purpose** | The complete analyst-style response to the user's query. Set by the Synthesizer on success, or by `error_handler_node` on failure. `None` until the graph reaches one of those two nodes. |
+| **Purpose** | Complete analyst-style response. Set by Synthesizer on success or `error_handler` on failure. `None` until the graph reaches one of those nodes. |
 | **Written by** | Synthesizer, `error_handler_node` |
 | **Read by** | Streamlit UI |
 
@@ -264,16 +733,16 @@ final_answer: str | None
 #### `errors`
 
 ```python
-errors: Annotated[list[str], operator.add]
+errors: list[str]
 ```
 
 | | |
 |---|---|
 | **Type** | `list[str]` |
 | **Reducer** | `operator.add` — errors from different nodes accumulate |
-| **Purpose** | Collects error messages from any node that encountered a problem. The Router checks `errors` first on every evaluation; a non-empty list causes an immediate redirect to `error_handler`. |
-| **Written by** | Planner (on empty query or LLM exception), any tool node (on failure) |
-| **Read by** | Router (checked before routing logic), Synthesizer (checked before LLM call) |
+| **Purpose** | Collects error messages from any node. Router checks `errors` first on every evaluation — a non-empty list causes immediate redirect to `error_handler`. |
+| **Written by** | Planner (on empty query or LLM exception), any tool node (on validation or execution failure) |
+| **Read by** | Router (checked first), Synthesizer (guard clause) |
 
 ---
 
@@ -281,32 +750,37 @@ errors: Annotated[list[str], operator.add]
 
 ### `planner`
 
-**File**: [`agent/planner.py`](../agent/planner.py) — built via `build_planner_node(llm)` closure.
+**File**: [`agent/planner.py`](../agent/planner.py) — `build_planner_node(llm)` closure.
 
 | | |
 |---|---|
-| **Responsibility** | Classify the user's intent and produce a structured `AnalysisPlan`. The only LLM call in the planning phase. |
+| **Responsibility** | Classify intent and produce a structured `AnalysisPlan`. The only LLM call in the planning phase. |
 | **Reads from state** | `query`, `messages` |
 | **Writes to state** | `intent`, `plan`, `selected_tools`, `current_step` (reset to `0`) |
 | **LLM call** | `llm.structured_chat(messages, AnalysisPlan)` — Gemini JSON mode, temperature `0.0` |
 | **On empty query** | Returns `intent=UNKNOWN`, `plan=None`, `selected_tools=[]`, appends to `errors` |
 | **On LLM exception** | Logs exception, returns same failure state as empty query |
-| **Next node (static edge)** | Always `router` |
+| **Next node** | Always `router` (static edge) |
 
-**Context window**: Passes system prompt + last 10 `messages` + current `query`. History truncation is hard-coded at 10 turns in `_build_planner_messages`.
+**Context window**: System prompt + last 10 `messages` + dataset schema summary + current `query`.
+History truncation is hard-coded at 10 turns in `_build_planner_messages`.
+
+**Phase 2 change**: The system prompt's capability list will be generated from the
+Capability Registry rather than a hand-written string. Parameter schemas for new
+capabilities (`compare`, `contribution`, etc.) will be injected automatically.
 
 ---
 
 ### `router` (node body)
 
-**File**: [`agent/router.py`](../agent/router.py) — `_passthrough_node` registered as node body.
+**File**: [`agent/router.py`](../agent/router.py) — `_passthrough_node`.
 
 | | |
 |---|---|
-| **Responsibility** | No-op. The actual routing logic lives in the `router_node` conditional-edge function attached to this node's outgoing edge. |
+| **Responsibility** | No-op. Routing logic lives in the `router_node` conditional-edge function. |
 | **Reads from state** | Nothing |
-| **Writes to state** | Nothing (`{}` returned) |
-| **Next node** | Determined by the `router_node` conditional edge (see [Conditional Routing](#conditional-routing)) |
+| **Writes to state** | Nothing |
+| **Next node** | Determined by `router_node` conditional edge |
 
 ---
 
@@ -314,15 +788,21 @@ errors: Annotated[list[str], operator.add]
 
 **File**: [`agent/router.py`](../agent/router.py) — `router_node(state) -> str`.
 
-This is not a node — it is a function called by LangGraph's conditional edge mechanism after the `router` node executes. It returns a **string key** that LangGraph maps to the next node.
+Not a node — called by LangGraph's conditional edge mechanism after `router` executes.
 
 | Priority | Condition | Returns |
 |---|---|---|
 | 1 | `len(errors) > 0` | `"error_handler"` |
-| 2 | `len(selected_tools) == 0` | `"synthesizer"` |
+| 2 | `len(selected_tools) == 0` or `plan is None` | `"synthesizer"` |
 | 3 | `current_step >= len(selected_tools)` | `"synthesizer"` |
-| 4 | `selected_tools[current_step]` is a known `ToolName` | node name string from `_TOOL_NODE_MAP` |
-| 5 | `selected_tools[current_step]` is unknown | `"error_handler"` |
+| 4 | `current_plan_step.depends_on` not satisfied by prior `ToolResult`s | `"error_handler"` |
+| 5 | `selected_tools[current_step]` is a known `ToolName` | node name from `_TOOL_NODE_MAP` |
+| 6 | `selected_tools[current_step]` is unknown | `"error_handler"` |
+
+**Phase 2**: Dependency validation (priority 4) already exists and validates that
+referenced step numbers have completed successfully. As new capabilities are added,
+the router will also validate that the capability's required input types are satisfied
+by prior `ToolResult` data.
 
 ---
 
@@ -332,85 +812,95 @@ This is not a node — it is a function called by LangGraph's conditional edge m
 
 | | |
 |---|---|
-| **Responsibility** | Increment `current_step` by 1 so the router advances to the next tool on its next evaluation. |
-| **Reads from state** | `current_step` |
-| **Writes to state** | `current_step` (incremented by 1) |
-| **Possible errors** | None |
-| **Next node (static edge)** | Always `router` |
+| **Responsibility** | Increment `current_step` by 1 after a tool completes. |
+| **Reads** | `current_step` |
+| **Writes** | `current_step` (incremented) |
+| **Next node** | Always `router` (static edge) |
 
 ---
 
-### `data_query`
+### `data_query` ✅ Implemented
 
 **File**: [`tools/data_query.py`](../tools/data_query.py)
 
 | | |
 |---|---|
-| **Responsibility** | Execute a filtered SELECT against the dataset and return rows. |
+| **Responsibility** | Execute a parameterised filtered SELECT against `dataset`. |
+| **Input contract** | `DataQueryRequest` — columns, filters, sort_by, sort_order, limit (≤100) |
+| **Output** | `list[dict]` — raw rows matching the query |
 | **Reads from state** | `plan`, `current_step` |
 | **Writes to state** | `tool_results` (appends one `ToolResult`) |
-| **Implementation status** | ⚠️ Stub — returns `ToolResult(success=False, error="not yet implemented")` |
-| **Next node (static edge)** | Always `step_advance` |
+| **Next node** | Always `step_advance` |
 
 ---
 
-### `metrics`
+### `metrics` ✅ Implemented
 
 **File**: [`tools/metrics.py`](../tools/metrics.py)
 
 | | |
 |---|---|
-| **Responsibility** | Compute aggregated metrics (SUM, AVG, COUNT, MIN, MAX, MEDIAN) via DuckDB GROUP BY. |
+| **Responsibility** | Compute aggregated metrics via DuckDB `GROUP BY`. |
+| **Input contract** | `MetricsRequest` — metric, aggregation, group_by, filters, limit, sort |
+| **Supported aggregations** | SUM, AVG, COUNT, MIN, MAX, MEDIAN |
+| **Output** | `list[dict]` — grouped aggregation rows |
 | **Reads from state** | `plan`, `current_step` |
 | **Writes to state** | `tool_results` (appends one `ToolResult`) |
-| **Implementation status** | ⚠️ Stub — returns `ToolResult(success=False, error="not yet implemented")` |
-| **Next node (static edge)** | Always `step_advance` |
+| **Next node** | Always `step_advance` |
 
 ---
 
-### `trends`
+### `trends` ✅ Implemented
 
 **File**: [`tools/trends.py`](../tools/trends.py)
 
 | | |
 |---|---|
-| **Responsibility** | Analyse a measure over time using DuckDB window functions (time series, rolling average, period-over-period change, cumulative sum). |
+| **Responsibility** | Temporal aggregation of a metric over `Date` using `DATE_TRUNC`. |
+| **Input contract** | `TrendsRequest` — metric, date_column, granularity, group_by, filters |
+| **Supported granularities** | `day`, `week`, `month`, `quarter`, `year` |
+| **Output** | `list[dict]` — `{period: str, total_<metric>: float}` rows ordered by period |
 | **Reads from state** | `plan`, `current_step` |
 | **Writes to state** | `tool_results` (appends one `ToolResult`) |
-| **Implementation status** | ⚠️ Stub — returns `ToolResult(success=False, error="not yet implemented")` |
-| **Next node (static edge)** | Always `step_advance` |
+| **Next node** | Always `step_advance` |
 
 ---
 
-### `charts`
+### `charts` ✅ Implemented
 
 **File**: [`tools/charts.py`](../tools/charts.py)
 
 | | |
 |---|---|
-| **Responsibility** | Render a Plotly figure (bar, line, scatter, pie, area, heatmap) from a prior `ToolResult`'s data. Does not query DuckDB. |
-| **Reads from state** | `tool_results` (to find the most recent successful result), `plan`, `current_step` |
-| **Writes to state** | `tool_results` (appends figure `ToolResult`), `chart_artifacts` |
-| **Implementation status** | ⚠️ Stub — returns `ToolResult(success=False, error="not yet implemented")` |
-| **Next node (static edge)** | Always `step_advance` |
+| **Responsibility** | Render a Plotly figure from a prior tool's tabular data. Does not query DuckDB. |
+| **Input contract** | `ChartRequest` — chart_type, x, y, color (optional), title (optional) |
+| **Supported types** | `bar`, `line`, `scatter` |
+| **Data source** | Most recent successful `ToolResult` with list data, or the step referenced in `depends_on` |
+| **Output** | `fig.to_dict()` — Plotly figure dict in `ToolResult.data` and `chart_artifacts` |
+| **Reads from state** | `tool_results`, `plan`, `current_step`, `chart_artifacts` |
+| **Writes to state** | `tool_results` (appends figure `ToolResult`), `chart_artifacts` (appends figure dict) |
+| **Next node** | Always `step_advance` |
 
 ---
 
 ### `synthesizer`
 
-**File**: [`agent/synthesizer.py`](../agent/synthesizer.py) — built via `build_synthesizer_node(llm)` closure.
+**File**: [`agent/synthesizer.py`](../agent/synthesizer.py) — `build_synthesizer_node(llm)` closure.
 
 | | |
 |---|---|
-| **Responsibility** | Narrate `tool_results` into a plain-English analyst-style answer. |
+| **Responsibility** | Narrate `tool_results` into a grounded analyst-style answer. Evidence before explanation. |
 | **Reads from state** | `query`, `plan`, `tool_results`, `errors` |
 | **Writes to state** | `final_answer`, `messages` (appends assistant `Message`) |
 | **LLM call** | `llm.chat(messages, temperature=0.3)` — free-form text |
 | **On errors with no results** | Bypasses LLM; returns a safe error-acknowledgment string |
-| **On LLM exception** | Returns a fallback message without re-raising |
-| **Next node (static edge)** | `END` |
+| **On LLM exception** | Returns fallback message without re-raising |
+| **Next node** | `END` |
 
-**Prompt composition**: `SYNTHESIZER_SYSTEM_PROMPT` + a user message containing: `query`, `plan.rationale`, `plan.steps`, and each `ToolResult` formatted as `[Step N | tool_name] ✓/✗\n<json data>`.
+**Grounding contract**: The synthesizer prompt explicitly states:
+> "Use ONLY the numbers and data provided in the tool results. Never invent figures."
+
+Every number in the synthesizer's response must be traceable to a `ToolResult`.
 
 ---
 
@@ -420,47 +910,212 @@ This is not a node — it is a function called by LangGraph's conditional edge m
 
 | | |
 |---|---|
-| **Responsibility** | Terminal node for unrecoverable errors. Logs all accumulated errors. Writes a user-facing error string to `final_answer` if one is not already set. |
+| **Responsibility** | Terminal node for unrecoverable errors. Logs errors. Writes user-facing error string to `final_answer`. |
 | **Reads from state** | `errors`, `final_answer` |
 | **Writes to state** | `final_answer` (only if not already set) |
-| **Next node (static edge)** | `END` |
+| **Next node** | `END` |
 
 ---
 
 ## Conditional Routing
 
-The single conditional edge in the graph is attached to the `router` node and calls `router_node(state) -> str`.
+The single conditional edge is attached to `router` and calls `router_node(state) -> str`.
 
 ### Decision Algorithm
 
 ```python
 # Pseudocode from agent/router.py::router_node
 
-if state["errors"]:                             # (1) any error → abort
+if state["errors"]:                              # (1) abort on any error
     return "error_handler"
 
 tools = state["selected_tools"]
+plan  = state["plan"]
 step  = state["current_step"]
 
-if not tools or step >= len(tools):             # (2) all steps done
+if not tools or plan is None:                    # (2) nothing to run
     return "synthesizer"
 
-tool = tools[step]                              # (3) dispatch next tool
-return _TOOL_NODE_MAP.get(tool, "error_handler")
+if step >= len(tools) or step >= len(plan.steps):  # (3) all steps done
+    return "synthesizer"
+
+current_plan_step = plan.steps[step]
+
+# (4) validate depends_on
+if current_plan_step.depends_on:
+    for dep_step_num in current_plan_step.depends_on:
+        if not any(tr.step_number == dep_step_num and tr.success
+                   for tr in state["tool_results"]):
+            return "error_handler"
+
+# (5) dispatch
+return _TOOL_NODE_MAP.get(current_plan_step.tool, "error_handler")
 ```
 
-### `_TOOL_NODE_MAP`
+---
+
+## PlanStep Dependencies
+
+`PlanStep` has two structurally important fields:
 
 ```python
-_TOOL_NODE_MAP = {
-    ToolName.DATA_QUERY: "data_query",
-    ToolName.METRICS:    "metrics",
-    ToolName.TRENDS:     "trends",
-    ToolName.CHARTS:     "charts",
-}
+class PlanStep(BaseModel):
+    step_number: int          # 1-based position in the plan
+    tool: ToolName            # capability to invoke
+    description: str          # human-readable step description
+    parameters: dict[str, Any]  # typed parameters for the capability's input schema
+    depends_on: list[int]     # step_numbers that must complete successfully first
 ```
 
-### Routing Examples
+`depends_on` is already validated by the router on every dispatch.
+It enables the agent to express analytical workflows where later steps
+require evidence from earlier steps.
+
+### Example: Multi-step Investigation with Dependencies
+
+```
+Plan for: "Show me a profit trend and highlight the worst month."
+
+Step 1: trends
+  parameters: {metric: "Profit", granularity: "month"}
+  depends_on: []
+
+Step 2: charts
+  parameters: {chart_type: "line", x: "period", y: "total_profit"}
+  depends_on: [1]   ← must have Step 1 data before rendering
+
+Step 3: metrics
+  parameters: {metric: "Profit", aggregation: "min", group_by: "Date"}
+  depends_on: []    ← independent; can run alongside Step 1 conceptually
+```
+
+### What the Router Currently Validates
+
+- Referenced `step_number` in `depends_on` has a corresponding `ToolResult`.
+- That `ToolResult` has `success=True`.
+
+### What the Router Will Validate in Phase 2
+
+- All current checks, plus:
+- The capability's required input type (e.g. `charts` requires list data)
+  is present in the referenced `ToolResult.data`.
+- The `parameters` dict validates against the capability's `input_schema`
+  before the tool node runs (fail fast, not mid-execution).
+
+---
+
+## Tool Architecture Boundary
+
+There is a hard, enforced boundary between LLM reasoning and deterministic execution:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                   LLM RESPONSIBILITY                      │
+│                                                           │
+│  • Natural-language understanding                         │
+│  • Intent classification                                  │
+│  • Selecting which capabilities to run and in what order  │
+│  • Constructing structured parameters for each step       │
+│  • Formulating investigation plans with depends_on        │
+│  • Synthesising verified evidence into narrative          │
+│                                                           │
+│  Implemented in: planner.py, synthesizer.py               │
+│  Temperature: 0.0 (planner), 0.3 (synthesizer)           │
+└──────────────────────────────────────────────────────────┘
+                             │
+                      AnalysisPlan
+                      (structured JSON)
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────┐
+│              DETERMINISTIC RESPONSIBILITY                 │
+│                                                           │
+│  • All SQL queries (parameterised, column-validated)      │
+│  • All aggregations (SUM, AVG, COUNT, MIN, MAX, MEDIAN)  │
+│  • All temporal analysis (DATE_TRUNC, LAG window)        │
+│  • All comparison and delta computation                   │
+│  • All profitability margin derivation (Profit / Revenue) │
+│  • All contribution percentage computation                │
+│  • All statistical calculations (IQR, z-score)           │
+│  • All correlation computation (CORR())                   │
+│  • All chart rendering (Plotly)                           │
+│  • All data validation and profiling                      │
+│                                                           │
+│  Implemented in: tools/, utils/data_loader.py, DuckDB    │
+│  No LLM access within tool nodes                         │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Enforcement**: Tool nodes receive only `AgentState`. They have no reference
+to any `BaseLLM` instance. They cannot call the LLM even by accident.
+The `BaseLLM` is injected only into `build_planner_node` and
+`build_synthesizer_node` via closure.
+
+---
+
+## Multi-step Execution Loop
+
+```
+Every tool node:  tool_node → step_advance  (static edge)
+step_advance:     step_advance → router     (static edge)
+router:           router → {tool | synthesizer | error_handler}  (conditional edge)
+```
+
+The loop terminates when `current_step >= len(selected_tools)`.
+There is no recursion limit. For a plan with N steps, the loop iterates
+exactly N times. Infinite loops are structurally impossible because
+`current_step` strictly increases and `selected_tools` is fixed at planning time.
+
+---
+
+## Error Handling
+
+| Failure mode | Detected where | Behaviour |
+|---|---|---|
+| Empty user query | Planner (guard clause) | `errors=["Planner received an empty query."]`, `plan=None` |
+| LLM exception in Planner | Planner (`try/except`) | Logs, `errors=["Planner failed: {exc}"]`, `plan=None` |
+| Invalid `ToolName` in plan | Router (`_TOOL_NODE_MAP.get`) | Returns `"error_handler"` |
+| `depends_on` step not completed | Router (dependency loop) | Appends to `errors`, returns `"error_handler"` |
+| Pydantic validation failure on parameters | Tool node (`model_validate`) | `ToolResult(success=False, error=...)`, graph continues |
+| DuckDB query failure | Tool node (`try/except`) | `ToolResult(success=False, error=...)`, graph continues |
+| LLM exception in Synthesizer | Synthesizer (`try/except`) | Returns fallback string; does not write to `errors` |
+| `errors` non-empty at any router evaluation | Router (first check) | Routes immediately to `error_handler` |
+| `error_handler` node | `_error_handler_node` | Logs errors, writes user-facing string to `final_answer` |
+
+**Design principle**: Errors are accumulated in `state["errors"]` (append reducer)
+rather than raised as exceptions. The graph always reaches `END` and always
+returns a `final_answer`, even on failure.
+
+---
+
+## Conversation State & Multi-turn Context
+
+Multi-turn context is maintained through the `messages` field.
+
+```
+Turn 1:
+  query = "What is total revenue by region?"
+  planner reads messages = []
+  synthesizer appends: Message(ASSISTANT, "The North region leads with $425k...")
+  messages = [Message(USER, "What is total..."), Message(ASSISTANT, "North leads...")]
+
+Turn 2 (same session):
+  query = "Which categories drive that?"
+  planner reads messages[-10:] including prior assistant message
+  planner produces plan aware that "that" refers to North's revenue
+  synthesizer appends: Message(ASSISTANT, "In the North, Technology contributes 42%...")
+```
+
+**History truncation**: The planner takes `history[-10:]`, capping context at
+10 prior messages to keep prompt size bounded.
+
+**Session persistence**: `create_initial_state(query, history)` separates persistent
+`messages` from per-turn execution state. Execution fields (`tool_results`,
+`chart_artifacts`, `errors`, `plan`, `current_step`) are reset clean on each turn.
+
+---
+
+## Routing Examples
 
 **Single-tool query**: *"What is total revenue by region?"*
 
@@ -468,200 +1123,29 @@ _TOOL_NODE_MAP = {
 Plan: selected_tools = [METRICS]
 
 router (step=0): METRICS → "metrics"
-metrics → step_advance (step becomes 1)
+metrics executes → ToolResult(success=True, data=[...]) → step_advance (step=1)
 router (step=1): 1 >= 1 → "synthesizer"
 synthesizer → END
 ```
 
-**Multi-tool query**: *"Show me a trend chart of monthly Technology sales."*
+**Multi-tool investigation**: *"Show a chart of monthly profit trends."*
 
 ```
 Plan: selected_tools = [TRENDS, CHARTS]
 
 router (step=0): TRENDS → "trends"
-trends → step_advance (step becomes 1)
-router (step=1): CHARTS → "charts"
-charts → step_advance (step becomes 2)
+trends executes → ToolResult(success=True) → step_advance (step=1)
+router (step=1): CHARTS → dependency check (step 1 exists and succeeded) → "charts"
+charts reads trends data → renders Plotly figure → step_advance (step=2)
 router (step=2): 2 >= 2 → "synthesizer"
 synthesizer → END
 ```
 
-**Error at planning**: *empty query submitted*
+**Failed dependency**: *"Chart the data"* (charts step depends_on a trends step that failed)
 
 ```
-Plan: Planner writes errors=["Planner received an empty query."]
-
-router (step=0): errors non-empty → "error_handler"
-error_handler → END
+router (step=1): CHARTS → depends_on=[0] → ToolResult(step=0, success=False)
+→ dependency not satisfied → errors=["...dependency check failed"]
+→ "error_handler"
+error_handler → END (final_answer = user-facing error message)
 ```
-
----
-
-## Tool Architecture
-
-There is a hard boundary between LLM reasoning and deterministic execution:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                  LLM RESPONSIBILITY                      │
-│                                                          │
-│  • Natural-language understanding                        │
-│  • Intent classification                                 │
-│  • Deciding which tools to run and in what order         │
-│  • Narrating the results of tool execution               │
-│                                                          │
-│  Implemented in: planner.py, synthesizer.py             │
-│  Temperature: 0.0 (planner), 0.3 (synthesizer)          │
-└─────────────────────────────────────────────────────────┘
-                           │
-                    AnalysisPlan
-                    (structured JSON)
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│              DETERMINISTIC RESPONSIBILITY                │
-│                                                          │
-│  • All SQL queries (parameterised, no interpolation)     │
-│  • All aggregations (SUM, AVG, COUNT, etc.)             │
-│  • All window functions (rolling avg, period-over-period)│
-│  • All chart rendering (Plotly)                          │
-│                                                          │
-│  Implemented in: tools/, utils/data_loader.py, DuckDB   │
-│  No LLM access within tool nodes                         │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Enforcement**: Tool nodes receive only `AgentState` as input. They have no
-reference to any `BaseLLM` instance. They cannot call the LLM even by mistake.
-The `BaseLLM` is injected only into `build_planner_node` and `build_synthesizer_node`
-via closure.
-
----
-
-## Data Flow
-
-Full trace of: *"What are the top 5 products by profit?"*
-
-```
-1. User types query into Streamlit UI
-   ↓
-2. app.py passes query to build_graph(llm).invoke({"query": query, "messages": []})
-   ↓
-3. [planner node]
-   Reads: query="What are the top 5 products by profit?"
-   Calls: llm.structured_chat([system_prompt, user_msg], AnalysisPlan)
-   Gemini returns JSON → parsed to:
-     AnalysisPlan(
-       intent=METRICS,
-       rationale="Ranking products by profit requires a single aggregation.",
-       steps=[PlanStep(step_number=1, tool=METRICS, description="SUM profit GROUP BY product, TOP 5")],
-       selected_tools=[METRICS]
-     )
-   Writes: intent="metrics", plan=<above>, selected_tools=[METRICS], current_step=0
-   ↓
-4. [router node body] → no-op
-   [router_node edge] → selected_tools[0]=METRICS → returns "metrics"
-   ↓
-5. [metrics node]
-   Reads: plan.steps[0] (tool parameters)
-   Executes: DuckDB query (when implemented)
-   Writes: tool_results=[ToolResult(tool=METRICS, step_number=1, success=True, data=[...])]
-   ↓
-6. [step_advance node]
-   Reads: current_step=0
-   Writes: current_step=1
-   ↓
-7. [router_node edge] → current_step=1 >= len(selected_tools)=1 → returns "synthesizer"
-   ↓
-8. [synthesizer node]
-   Reads: query, plan.rationale, tool_results
-   Builds prompt: system_prompt + user_msg with serialised ToolResult data
-   Calls: llm.chat(messages, temperature=0.3)
-   Gemini returns: "The top 5 products by profit are ..."
-   Writes: final_answer="The top 5 products ...", messages=[Message(ASSISTANT, ...)]
-   ↓
-9. Graph reaches END
-   ↓
-10. Streamlit renders final_answer in chat panel
-```
-
----
-
-## Multi-step Execution
-
-The multi-step loop is implemented via the `step_advance → router` static edge
-combined with the `router_node` boundary check.
-
-```
-Every tool node has a static edge:  tool_node → step_advance
-step_advance has a static edge:     step_advance → router
-router has a conditional edge:      router → {tool | synthesizer | error_handler}
-```
-
-This creates an **explicit loop** in the graph. The loop terminates when
-`current_step >= len(selected_tools)`, at which point the router exits to
-`synthesizer`.
-
-**There is no recursion limit** in the current implementation. For a plan
-with N steps, the loop iterates exactly N times. Infinite loops are prevented
-by the fact that `current_step` strictly increases and `selected_tools` is
-fixed at planning time.
-
-**Dependency ordering**: `PlanStep.depends_on` is defined in the schema but
-is **not yet enforced by the router**. The current router executes steps in
-the order they appear in `selected_tools`, regardless of `depends_on`. Parallel
-or out-of-order execution is a planned future enhancement.
-
----
-
-## Error Handling
-
-| Failure mode | Where detected | Behaviour |
-|---|---|---|
-| Empty user query | Planner (guard clause) | Writes `errors=["Planner received an empty query."]`, plan=None |
-| LLM exception in Planner | Planner (try/except) | Logs exception, writes `errors=["Planner failed: {exc}"]`, plan=None |
-| Unknown `ToolName` in plan | Router (`_TOOL_NODE_MAP.get`) | Returns `"error_handler"` directly |
-| Tool execution failure | Tool node (to be implemented in Phase 1) | Will return `ToolResult(success=False, error=...)` and optionally append to `errors` |
-| LLM exception in Synthesizer | Synthesizer (try/except) | Returns fallback string without re-raising; does not write to `errors` |
-| Errors present with no tool results | Synthesizer (guard clause) | Bypasses LLM, returns error-acknowledgment string directly |
-| Any non-empty `errors` at router | Router (first check) | Routes to `error_handler` immediately |
-| `error_handler` node | `_error_handler_node` | Logs errors, writes a user-facing error string to `final_answer` |
-
-**Design principle**: Errors are accumulated in `state["errors"]` (append reducer)
-rather than raised as exceptions. This allows the graph to always reach `END`
-and always return a `final_answer`, even on failure.
-
----
-
-## Conversation State
-
-Multi-turn context is maintained through the `messages` field in `AgentState`.
-
-```
-Turn 1:
-  query = "What is total revenue by region?"
-  planner reads messages = []
-  synthesizer appends: Message(role=ASSISTANT, content="West leads with $X...")
-  messages = [Message(ASSISTANT, "West leads with $X...")]
-
-Turn 2 (same session):
-  query = "Which categories drive that?"
-  planner reads messages[-10:] = [Message(ASSISTANT, "West leads with $X...")]
-  planner includes prior answer as context in the LLM prompt
-  synthesizer appends: Message(role=ASSISTANT, content="In the West, Technology...")
-  messages = [Message(ASSISTANT, "West leads..."), Message(ASSISTANT, "Technology...")]
-```
-
-**Current implementation**: The application layer writes the user's current `query`
-to state before each graph invocation. The planner's `_build_planner_messages`
-helper includes the user's query as the final message and the prior `messages`
-list (capped at last 10) as context. The synthesizer appends the assistant reply
-at the end of each turn.
-
-**Not yet implemented**: The Streamlit UI has no session-state management yet.
-The `messages` accumulation works correctly at the graph level but is not wired
-to a persistent UI session. This is a Phase 3 task.
-
-**History truncation**: The planner takes `history[-10:]`, capping context at
-10 prior messages to keep prompt size bounded. This is a hard-coded constant in
-`_build_planner_messages`.

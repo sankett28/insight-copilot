@@ -1,18 +1,36 @@
 # Insight Copilot
 
-Insight Copilot is a conversational analytical agent built with LangGraph and Gemini that accepts natural-language questions about a structured dataset, produces an explicit execution plan, runs deterministic Python/DuckDB analytical tools, and synthesises the results into a coherent insight — without the LLM ever computing a number itself.
+Insight Copilot is a capability-oriented analytical agent built with LangGraph and Gemini that accepts natural-language questions about a structured dataset, produces an explicit investigation plan, executes deterministic Python/DuckDB analytical capabilities in dependency order, and synthesises the results into a grounded analyst-style answer — without the LLM ever computing a number itself.
 
 ---
 
 ## Overview
 
-Insight Copilot exposes a dataset through a chat interface. When a user asks a question, a LangGraph `StateGraph` orchestrates the following: the Planner LLM node classifies intent and produces a structured execution plan; the Router dispatches to one or more analytical tool nodes in sequence; each tool runs a deterministic DuckDB query or Plotly render; and the Synthesizer LLM node narrates the results back to the user. The full execution plan and tool trace are visible in the UI, making every answer inspectable and reproducible.
+Insight Copilot is not a chatbot with SQL tools attached. It is an analytical agent structured around a hard architectural principle:
+
+```
+LLM decides.       →  What to investigate and in what order.
+Deterministic code executes.  →  All SQL, aggregations, and chart rendering.
+LLM explains.      →  Narration of verified evidence only.
+```
+
+When a user asks a question, a LangGraph `StateGraph` orchestrates an investigation:
+the **Planner** classifies intent and produces a structured `AnalysisPlan` with typed
+capability parameters; the **Router** dispatches to analytical capability nodes in
+dependency order; each **capability node** runs a deterministic DuckDB query or
+Plotly render and appends a `ToolResult` to state; the **Synthesizer** narrates the
+evidence into a coherent answer. The full execution plan and tool trace are visible
+in the UI — every answer is inspectable and reproducible.
 
 ---
 
 ## Problem
 
-Most LLM-based data assistants either let the model hallucinate numbers or bury the computation path inside an opaque agent loop. Insight Copilot solves this by enforcing a hard boundary: the LLM is responsible for language (intent classification, planning, narration) while Python and DuckDB are responsible for all computation. Users get natural-language convenience without sacrificing analytical accuracy or transparency.
+Most LLM-based data assistants either let the model hallucinate numbers or bury the
+computation path inside an opaque agent loop. Insight Copilot solves this by enforcing
+a hard boundary: the LLM is responsible for *language* (intent classification, planning,
+narration) while Python and DuckDB are responsible for *all computation*. Users get
+natural-language convenience without sacrificing analytical accuracy or transparency.
 
 ---
 
@@ -20,166 +38,163 @@ Most LLM-based data assistants either let the model hallucinate numbers or bury 
 
 ```mermaid
 flowchart TD
-    User([User]) -->|natural language question| UI[Streamlit UI]
-    UI -->|AgentState| Graph[LangGraph StateGraph]
+    U([User]) -->|natural language question| ST[Streamlit UI]
+    ST -->|create_initial_state| Graph[LangGraph StateGraph]
 
-    Graph --> Planner[Planner Node\nGemini LLM]
-    Planner -->|AnalysisPlan| Router[Conditional Router]
+    Graph --> PL[Planner\nGemini structured output]
+    PL -->|AnalysisPlan\nwith typed PlanStep parameters| RT[Dependency-aware Router]
 
-    Router -->|data_query| DQ[Data Query Tool]
-    Router -->|metrics| MT[Metrics Tool]
-    Router -->|trends| TR[Trend Analysis Tool]
-    Router -->|charts| CH[Chart Tool]
+    RT -->|data_query| DQ[data_query]
+    RT -->|metrics| MT[metrics]
+    RT -->|trends| TR[trends]
+    RT -->|charts| CH[charts]
 
-    DQ & MT & TR -->|SQL| DB[(DuckDB)]
-    DB -->|ToolResult| Router
+    DQ & MT & TR -->|parameterised SQL| DB[(DuckDB\nsales_dataset.parquet)]
+    DB -->|ToolResult rows| DQ & MT & TR
 
-    CH -->|Plotly figure| Router
+    CH -->|fig.to_dict| CH
 
-    Router -->|all steps done| Synth[Synthesizer Node\nGemini LLM]
-    Synth -->|final answer + chart| UI
+    DQ & MT & TR & CH -->|ToolResult| SA[step_advance]
+    SA -->|current_step + 1| RT
+
+    RT -->|all steps done| SY[Synthesizer\nGemini chat]
+    SY -->|final_answer| ST
 ```
 
----
+**Investigation workflow (not just question → tool → answer)**:
 
-## Agent Workflow
-
-1. **User query** — the user types a natural-language question into the Streamlit chat panel.
-2. **Planning** — the Planner node sends the query (with conversation history) to Gemini, which returns a structured `AnalysisPlan`: an intent classification, a plain-English rationale, and an ordered list of tool steps.
-3. **Tool selection** — the plan's `selected_tools` list is written to `AgentState`. The Router reads it to decide which node to call first.
-4. **Tool execution** — the Router dispatches to the correct tool node. Each tool runs a deterministic DuckDB query or Plotly render and appends a `ToolResult` to the state.
-5. **Multi-step execution** — after each tool completes, `advance_step` increments the step counter and control returns to the Router, which dispatches the next tool. This loop continues until all steps are complete.
-6. **Result synthesis** — once all steps are done, the Router sends control to the Synthesizer node. Gemini receives the serialised `ToolResult` objects and produces a plain-English analyst-style answer. It is explicitly instructed not to invent any numbers.
-7. **Final insight** — the answer (and any Plotly charts) are written back to the Streamlit UI.
-
----
-
-## Tech Stack
-
-| Technology | Why it is used |
-|---|---|
-| **Python 3.12** | Primary language. Modern syntax, strong typing, rich data ecosystem. |
-| **LangGraph** | Provides the `StateGraph` primitive for explicit, conditional, multi-step agent orchestration. Chosen over bare LangChain because execution paths are declared as graph edges — auditable and testable. |
-| **Gemini (google-generativeai)** | LLM provider for planning and synthesis. Used via an abstract `BaseLLM` interface so the provider can be swapped without changing agent code. |
-| **Pydantic v2** | Validates all structured data that crosses component boundaries (`AnalysisPlan`, `ToolResult`, `AgentState` schemas). Catches malformed LLM output before it reaches the tools. |
-| **DuckDB** | In-process OLAP engine for all analytical computation. Reads CSV/Parquet/Excel directly. Chosen over Pandas chains because SQL is explicit, auditable, and faster for aggregations on larger datasets. |
-| **Pandas** | Data transport layer between DuckDB and the rest of the application. Used for serialisation (`.to_dict()`), not for computation. |
-| **Plotly** | Interactive chart rendering. The Chart tool produces `fig.to_dict()` dicts that Streamlit renders natively. |
-| **Streamlit** | Rapid UI framework for the chat interface and execution-plan trace panel. No JavaScript required. |
-| **pytest** | Test runner. All tests are pure Python with mocked LLMs — no live API calls required to run the suite. |
-
----
-
-## Tools
-
-All tools are deterministic Python functions. The LLM does not call them directly; the Router dispatches to them based on the structured plan.
-
-### Data Query Tool
-
-**File**: [`tools/data_query.py`](tools/data_query.py)
-
-Retrieves filtered rows from the dataset using a parameterised DuckDB `SELECT`. Accepts column selection, equality filters, and a row limit. Returns a list of row dicts. Used as the foundation for any question that needs raw data before aggregation.
-
-> **Status**: Interface defined. DuckDB implementation pending (Phase 1).
-
-### Metrics Tool
-
-**File**: [`tools/metrics.py`](tools/metrics.py)
-
-Computes aggregated numeric metrics via DuckDB `GROUP BY` queries. Supports `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, and `MEDIAN`. Optionally returns the top-N rows ordered by the metric. Used for questions like "top 5 products by revenue" or "average discount by category".
-
-> **Status**: Interface defined. DuckDB implementation pending (Phase 1).
-
-### Trend Analysis Tool
-
-**File**: [`tools/trends.py`](tools/trends.py)
-
-Analyses a numeric measure over an ordered dimension (typically time) using DuckDB window functions. Supports time series aggregation, rolling averages, period-over-period change, and cumulative totals. Used for questions about growth, seasonality, and momentum.
-
-> **Status**: Interface defined. DuckDB implementation pending (Phase 1).
-
-### Chart Tool
-
-**File**: [`tools/charts.py`](tools/charts.py)
-
-Renders a Plotly figure from data produced by a preceding tool. Supports bar, line, scatter, pie, area, and heatmap chart types. The tool does not query the database — it only transforms an existing `ToolResult` into a visual representation. Returns a `fig.to_dict()` that Streamlit renders natively.
-
-> **Status**: Interface defined. Plotly implementation pending (Phase 1).
+```
+User question
+      ↓
+Investigation plan  (AnalysisPlan with PlanStep.depends_on)
+      ↓
+Capability selection  (Planner selects ordered steps)
+      ↓
+Dependency-aware execution  (Router validates before each dispatch)
+      ↓
+Deterministic evidence  (ToolResults from DuckDB and Plotly)
+      ↓
+Grounded synthesis  (LLM narrates only what the tools found)
+```
 
 ---
 
 ## Dataset
 
-**Selected dataset**: [Superstore Sales Dataset](https://www.kaggle.com/datasets/vivek468/superstore-dataset-final)
+**Canonical dataset**: `data/Sales_Dataset_2024.xlsx` — 2,000 rows, 10 columns,
+full-year 2024 sales data.
 
-### What it contains
+**Runtime representation**: `data/sales_dataset.parquet` — auto-generated on first
+run via `utils/data_loader.py`. All analytical queries target a DuckDB in-memory
+view named `dataset` registered over the Parquet file.
 
-A US retail orders dataset with approximately 10,000 rows and 21 columns, covering the period 2014–2017. Key columns include:
-
-| Column | Type | Description |
+| Column | Type | Role |
 |---|---|---|
-| `Order Date` | date | Date the order was placed |
-| `Ship Date` | date | Date the order shipped |
-| `Segment` | string | Customer segment (Consumer, Corporate, Home Office) |
-| `Region` | string | US region (East, West, Central, South) |
-| `Category` | string | Product category (Furniture, Office Supplies, Technology) |
-| `Sub-Category` | string | Product sub-category (28 values) |
-| `Product Name` | string | Individual product name |
-| `Sales` | float | Order line revenue |
-| `Quantity` | int | Units ordered |
-| `Discount` | float | Discount applied (0.0–0.8) |
-| `Profit` | float | Order line profit |
+| `Date` | TIMESTAMP | Temporal axis for trend analysis |
+| `Region` | VARCHAR | Geographic dimension |
+| `Product` | VARCHAR | Product dimension |
+| `Salesperson` | VARCHAR | Personnel dimension |
+| `Category` | VARCHAR | Product category dimension |
+| `Units_Sold` | DOUBLE | Quantity metric |
+| `Unit_Price` | DOUBLE | Pricing metric |
+| `Revenue` | DOUBLE | Revenue metric |
+| `Cost` | DOUBLE | Cost metric |
+| `Profit` | DOUBLE | Profit metric |
 
-### Why it was selected
-
-- Covers multiple analytical dimensions (time, geography, category, segment) that exercise all four tool types.
-- Small enough (< 1 MB) to load into DuckDB in-process without any infrastructure.
-- Well-understood structure — suitable for demonstrating the agent's planning behaviour without ambiguity.
-- Freely available, with no licensing restrictions for academic use.
-
-### How it is loaded
-
-The dataset file (CSV, Parquet, or Excel) is placed in the `data/` directory and registered as a DuckDB in-process view named `dataset` via `utils/data_loader.py`. The file path is configured through the `DATASET_PATH` environment variable.
-
-> **Status**: `data_loader.py` interface defined. File ingestion implementation pending (Phase 1).
-
-### Assumptions
-
-- The `Order Date` and `Ship Date` columns are parseable as dates.
-- Currency is uniformly USD.
-- No deduplication or cleaning is applied at load time in Phase 0.
+The source file is never modified. Data quality findings (e.g. negative profit rows)
+are reported as observable evidence, not silently corrected.
 
 ---
 
-## Reasoning / Execution Plan
+## Analytical Capabilities
 
-Insight Copilot does not expose hidden chain-of-thought. Instead, the Planner produces a structured `AnalysisPlan` that is surfaced in the UI before execution begins.
+### Currently Implemented (Phase 1 — Complete)
 
-**Example**
+| Capability | What it does |
+|---|---|
+| `data_query` | Parameterised `SELECT` with column selection, equality filters, sorting, and limit (max 100 rows) |
+| `metrics` | DuckDB `GROUP BY` aggregations: `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `MEDIAN` |
+| `trends` | `DATE_TRUNC`-based temporal aggregation at `day`, `week`, `month`, `quarter`, `year` granularity |
+| `charts` | Plotly `bar`, `line`, `scatter` generation from prior `ToolResult` data — never queries DuckDB directly |
 
-*User query*: "Which region has the highest profit margin, and how does it break down by category?"
+### Planned — Phase 2
 
-```
-Intent:   metrics
+| Capability | What it answers |
+|---|---|
+| `data_profile` | "What does this dataset look like?" — row count, column types, missing values, cardinality, date range, numeric ranges, data quality warnings |
+| `compare` | "North vs South", "Q1 vs Q2", "Category A vs Category B" — absolute and percentage delta |
+| `contribution` | "Which region drives the most revenue?" — absolute and relative percentage share |
+| `profitability` | Revenue, cost, profit, and derived profit margin (`Profit / Revenue`) — does not conflate high revenue with high profitability |
+| `variance` | Month-over-month, quarter-over-quarter, H1 vs H2 change — `LAG()` window function |
 
-Rationale:
-  The question asks for an aggregated ratio (profit margin = profit / sales)
-  grouped first by region, then by category within the top region.
-  Two sequential metric queries are sufficient; no trend or chart is needed
-  unless the user requests one.
+### Planned — Phase 3
 
-Steps:
-  1. metrics  — calculate profit margin by region, ranked descending
-  2. metrics  — calculate profit margin by category within the top region
-```
+| Capability | What it answers |
+|---|---|
+| `anomaly_detection` | "Any unusually large orders?" — IQR and z-score methods; no ML required |
+| `correlation` | "Is there a relationship between Units_Sold and Revenue?" — `CORR()` with explicit causation disclaimer |
+| `segmentation` | "Region × Category performance matrix" — multi-column `GROUP BY` |
 
-The plan is written to `AgentState` and rendered in the Streamlit trace panel before the tools execute.
+All Phase 2 and Phase 3 capabilities are **not yet implemented**. Do not mistake the
+roadmap for the current feature set.
 
 ---
 
-## Multi-turn Conversation
+## Agent Workflow
 
-Conversation history is maintained in `AgentState["messages"]`, a list of `Message` objects (role + content) accumulated across turns using a LangGraph `operator.add` reducer. On each new query, the Planner receives the last 10 messages as context, allowing it to resolve references like *"show me a chart of that"* or *"filter to the West region"* without the user repeating prior context.
+1. **User query** — typed into the Streamlit chat panel.
+2. **Planning** — Planner sends the query (with conversation history and dataset schema)
+   to Gemini, which returns a structured `AnalysisPlan`: an intent classification,
+   a plain-English rationale, and an ordered list of `PlanStep` objects each containing
+   typed parameters and `depends_on` references.
+3. **Dependency-aware dispatch** — the Router reads `plan.steps[current_step]`,
+   validates that all declared `depends_on` steps have completed successfully,
+   then dispatches to the correct capability node.
+4. **Deterministic execution** — each capability node validates its `PlanStep.parameters`
+   against a Pydantic request schema, executes a parameterised DuckDB query or
+   Plotly render, and appends a `ToolResult` to state.
+5. **Multi-step loop** — `advance_step` increments `current_step`, control returns
+   to the Router, which dispatches the next capability or exits to the Synthesizer
+   when all steps are done.
+6. **Grounded synthesis** — the Synthesizer receives the serialised `ToolResult`
+   objects and produces a plain-English answer using only the data the tools returned.
+   It is explicitly prohibited from inventing numbers.
+7. **Final answer** — written to state; Streamlit renders it with any Plotly charts.
+
+---
+
+## Example Investigation
+
+**User**: *"Why did profit decline in the second half of 2024?"*
+
+This question requires a multi-step investigation, not a single tool call:
+
+```
+Step 1  trends       — Confirm profit trend by month. Does decline exist? When?
+Step 2  compare      — H1 vs H2 total profit: exact absolute and % gap.
+Step 3  contribution — Which regions/categories drove the largest change?
+Step 4  profitability — Did revenue hold while margins compressed?
+Step 5  charts       — Visualise the monthly profit trend from Step 1.
+
+Synthesizer — Narrates Steps 1–5. Every claim cites a ToolResult.
+              Cannot invent causes not evidenced by the data.
+```
+
+---
+
+## Tech Stack
+
+| Technology | Why |
+|---|---|
+| **Python 3.12** | Primary language. Modern typing, rich data ecosystem. |
+| **LangGraph** | `StateGraph` for explicit, conditional, multi-step agent orchestration. Execution paths declared as graph edges — auditable and testable. |
+| **Gemini (google-generativeai)** | LLM provider for planning and synthesis, accessed via an abstract `BaseLLM` interface. Swappable without changing agent code. |
+| **Pydantic v2** | Validates all structured data crossing component boundaries (`AnalysisPlan`, `ToolResult`, capability request schemas). Catches malformed LLM output before it reaches the tools. |
+| **DuckDB** | In-process OLAP engine for all analytical computation. Reads Parquet natively. SQL is explicit, auditable, and faster than Pandas chains for aggregation workloads. |
+| **Pandas** | Data transport only — converts DuckDB results to `list[dict]`. Not used for computation. |
+| **Plotly** | Interactive chart rendering. Chart tool produces `fig.to_dict()` dicts that Streamlit renders natively. |
+| **Streamlit** | Chat UI and execution-plan trace panel. No JavaScript required. |
+| **pytest** | Test runner. All offline tests run without a live API key or dataset file. |
 
 ---
 
@@ -191,16 +206,16 @@ insight-copilot/
 ├── app.py                    # Streamlit entry-point
 │
 ├── agent/                    # LangGraph graph and node implementations
-│   ├── state.py              # AgentState TypedDict — shared graph memory
+│   ├── state.py              # AgentState TypedDict; create_initial_state()
 │   ├── graph.py              # StateGraph wiring (nodes + edges)
 │   ├── planner.py            # Planner node: LLM → AnalysisPlan
 │   ├── router.py             # Router: conditional edge + advance_step node
-│   └── synthesizer.py        # Synthesizer node: LLM → final answer
+│   └── synthesizer.py        # Synthesizer node: LLM → grounded final answer
 │
-├── tools/                    # Deterministic analytical tools (no LLM)
-│   ├── data_query.py         # DuckDB SELECT with filters and column selection
+├── tools/                    # Deterministic analytical capability nodes
+│   ├── data_query.py         # Parameterised SELECT with filters and column selection
 │   ├── metrics.py            # DuckDB GROUP BY aggregations
-│   ├── trends.py             # DuckDB window functions for time-series analysis
+│   ├── trends.py             # DATE_TRUNC temporal aggregation
 │   └── charts.py             # Plotly chart rendering from ToolResult data
 │
 ├── llm/                      # LLM provider abstraction
@@ -209,27 +224,31 @@ insight-copilot/
 │   └── factory.py            # create_llm() — provider selection
 │
 ├── models/                   # Pydantic data contracts
-│   └── schemas.py            # AnalysisPlan, ToolResult, Message, enums
+│   └── schemas.py            # AnalysisPlan, PlanStep, ToolResult, request schemas, enums
 │
 ├── utils/                    # Shared utilities
 │   ├── prompts.py            # Centralised LLM system prompts
-│   └── data_loader.py        # DuckDB dataset ingestion
+│   └── data_loader.py        # Excel → Parquet, DuckDB connection, schema metadata
 │
-├── data/                     # Dataset files (git-ignored)
-│   └── README.md             # Dataset placement instructions
+├── data/                     # Dataset files (Excel + generated Parquet)
 │
-├── tests/                    # pytest test suite
-│   ├── test_graph.py         # Graph construction tests
-│   ├── test_router.py        # Router logic and step-advance tests
-│   └── test_tools.py         # Tool node stubs and interface tests
+├── tests/                    # pytest test suite (73 tests, offline, no live API)
+│   ├── test_data_layer.py    # Dataset loading, validation, DuckDB view
+│   ├── test_data_query.py    # data_query tool
+│   ├── test_metrics.py       # metrics tool with numerical assertions
+│   ├── test_trends.py        # trends tool with temporal assertions
+│   ├── test_charts.py        # charts tool, zero Streamlit dependency
+│   ├── test_graph.py         # Graph construction and node set
+│   ├── test_router.py        # Router logic and dependency validation
+│   └── test_tools.py         # Tool node contract tests
 │
 ├── docs/                     # Project documentation
 │   ├── architecture.md       # Detailed architecture reference
-│   ├── development-plan.md   # Phased roadmap with checkboxes
+│   ├── development-plan.md   # Phased roadmap with task checklist
 │   └── decisions.md          # Architecture Decision Records (ADRs)
 │
 ├── .streamlit/
-│   └── config.toml           # Streamlit theme configuration
+│   └── config.toml           # Streamlit dark theme configuration
 │
 ├── CONTRIBUTING.md           # Branching strategy, commit conventions, coding standards
 ├── .env.example              # Environment variable template
@@ -244,84 +263,84 @@ insight-copilot/
 ### Prerequisites
 
 - Python 3.12+
-- A Gemini API key ([get one here](https://aistudio.google.com/app/apikey))
-- The Superstore dataset CSV placed in `data/`
+- A Gemini API key ([get one at aistudio.google.com](https://aistudio.google.com/app/apikey))
+- `data/Sales_Dataset_2024.xlsx` placed in the `data/` directory
 
 ### Installation
 
-```bash
+```powershell
 # 1. Clone the repository
 git clone https://github.com/sankett28/insight-copilot.git
 cd insight-copilot
 
-# 2. Create a virtual environment
+# 2. Create and activate a virtual environment
 python -m venv .venv
-
-# Activate — Windows (PowerShell)
-.venv\Scripts\Activate.ps1
-
-# Activate — macOS / Linux
-source .venv/bin/activate
+.venv\Scripts\Activate.ps1        # Windows PowerShell
+# source .venv/bin/activate        # macOS / Linux
 
 # 3. Install dependencies
 pip install -r requirements.txt
 
 # 4. Configure environment variables
-copy .env.example .env      # Windows
-cp .env.example .env        # macOS / Linux
-# Edit .env and fill in the required values (see below)
+copy .env.example .env
+# Edit .env and set GEMINI_API_KEY
 ```
 
----
+### Environment Variables
 
-## Environment Variables
-
-Copy `.env.example` to `.env` and set the following values.
-**Never commit the `.env` file.**
+Copy `.env.example` to `.env`. **Never commit the `.env` file.**
 
 ```env
 # Required — Gemini API key
 GEMINI_API_KEY=your-gemini-api-key-here
 
-# Optional — override the default model (gemini-2.0-flash)
+# Optional — override the default model
 GEMINI_MODEL=gemini-2.0-flash
 
-# Optional — LLM provider (only "gemini" is supported currently)
+# Optional — LLM provider (only "gemini" supported currently)
 LLM_PROVIDER=gemini
-
-# Required — path to the dataset file
-DATASET_PATH=data/superstore.csv
 
 # Optional — log verbosity
 LOG_LEVEL=INFO
 ```
 
+> `DATASET_PATH` is not required. The data loader automatically resolves
+> `data/Sales_Dataset_2024.xlsx` relative to the project root.
+
 ---
 
-## Running Locally
+## Running the Application
 
-```bash
+```powershell
 streamlit run app.py
 ```
 
-The application is served at `http://localhost:8501` by default.
+The application is served at `http://localhost:8501`.
 
 ---
 
 ## Testing
 
-```bash
-# Run the full test suite
-pytest tests/ -v
+All offline tests run without a live API key or an active DuckDB server.
+
+```powershell
+# Run the full offline test suite (73 tests)
+.venv\Scripts\pytest tests/ -v
 
 # Run with coverage report
-pytest tests/ -v --cov=. --cov-report=term-missing
+.venv\Scripts\pytest tests/ -v --cov=. --cov-report=term-missing
 
 # Run a single test file
-pytest tests/test_router.py -v
+.venv\Scripts\pytest tests/test_metrics.py -v
 ```
 
-All tests run without a live API key or dataset file. The LLM is mocked at the `BaseLLM` interface level and DuckDB tests (Phase 1) will use in-memory databases with synthetic data.
+Integration tests (require `GEMINI_API_KEY`) live in `tests/integration/` and
+are excluded from the default test run. They are run manually during Phase 2
+validation:
+
+```powershell
+.venv\Scripts\pytest tests/integration/ -v
+```
 
 ---
 
@@ -329,26 +348,16 @@ All tests run without a live API key or dataset file. The LLM is mocked at the `
 
 The intended deployment target is **Streamlit Community Cloud**.
 
-1. Push the repository to GitHub (the `main` branch is the deployment source).
+1. Push the repository to GitHub (`main` branch).
 2. Connect the repository to [share.streamlit.io](https://share.streamlit.io).
-3. Configure secrets through the Streamlit Cloud **Secrets** panel (not environment files):
+3. Configure secrets via Streamlit Cloud Secrets panel:
    ```toml
    GEMINI_API_KEY = "your-key-here"
-   DATASET_PATH = "data/superstore.csv"
    ```
-4. The dataset file must be committed to the repository or fetched at startup; it is not uploaded separately.
+4. Ensure `data/Sales_Dataset_2024.xlsx` is committed to the repository
+   (the Parquet runtime file is generated at startup and does not need to be committed).
 
-> **Status**: Deployment configuration not yet started.
-
----
-
-## Architecture Decisions
-
-Seven documented Architecture Decision Records (ADRs) explain the reasoning behind major technical choices:
-
-→ [`docs/decisions.md`](docs/decisions.md)
-
-Decisions covered: LangGraph over LangChain AgentExecutor, TypedDict vs Pydantic for state, DuckDB for computation, Gemini as initial LLM provider, structured vs free-form output split between planner and synthesizer, no hidden chain-of-thought, and centralised prompt management.
+> **Status**: Deployment not yet started. Planned for Phase 4.
 
 ---
 
@@ -356,41 +365,53 @@ Decisions covered: LangGraph over LangChain AgentExecutor, TypedDict vs Pydantic
 
 | Area | Status |
 |---|---|
-| Project skeleton | ✅ Complete |
-| Agent state (`AgentState`) | ✅ Complete |
-| LangGraph graph wiring | ✅ Complete |
-| Planner node | ✅ Skeleton — interface complete, LLM integration untested |
-| Router node | ✅ Complete |
-| Synthesizer node | ✅ Skeleton — interface complete, LLM integration untested |
-| Data query tool | 🔲 Stub only — interface defined, DuckDB logic pending |
-| Metrics tool | 🔲 Stub only — interface defined, DuckDB logic pending |
-| Trend analysis tool | 🔲 Stub only — interface defined, DuckDB logic pending |
-| Chart tool | 🔲 Stub only — interface defined, Plotly logic pending |
-| `data_loader` utility | 🔲 Interface defined, file ingestion pending |
-| Streamlit UI | 🔲 Layout shell only — no live agent connection |
-| Multi-turn conversation | 🔲 State structure defined, not wired to UI |
-| Tests | ✅ 27 passing — graph, router, tool stubs |
-| Documentation | ✅ Complete for current phase |
-| Deployment | 🔲 Not started |
+| Project skeleton & contracts | ✅ Complete |
+| `AgentState` & turn isolation | ✅ Complete |
+| LangGraph graph wiring (9 nodes) | ✅ Complete |
+| Router with dependency validation | ✅ Complete |
+| Data layer: Excel → Parquet → DuckDB | ✅ Complete |
+| `data_query` tool | ✅ Complete |
+| `metrics` tool | ✅ Complete |
+| `trends` tool | ✅ Complete |
+| `charts` tool | ✅ Complete |
+| Offline test suite (73 tests) | ✅ Complete |
+| Planner node (skeleton) | 🔄 Interface complete — LLM integration untested |
+| Synthesizer node (skeleton) | 🔄 Interface complete — LLM integration untested |
+| Capability Registry | 🔲 Phase 2 |
+| `data_profile` capability | 🔲 Phase 2 |
+| `compare` capability | 🔲 Phase 2 |
+| `contribution` capability | 🔲 Phase 2 |
+| `profitability` capability | 🔲 Phase 2 |
+| `variance` capability | 🔲 Phase 2 |
+| Gemini planner integration (live) | 🔲 Phase 2 |
+| Synthesizer grounding tests (live) | 🔲 Phase 2 |
+| Multi-turn conversation (end-to-end) | 🔲 Phase 2 |
+| Streamlit chat UI | 🔲 Phase 3 |
+| Execution plan trace panel | 🔲 Phase 3 |
+| Chart rendering in UI | 🔲 Phase 3 |
+| `anomaly_detection` capability | 🔲 Phase 3 |
+| `correlation` capability | 🔲 Phase 3 |
+| `segmentation` capability | 🔲 Phase 3 |
+| Evaluation suite (25 queries) | 🔲 Phase 4 |
+| Deployment (Streamlit Cloud) | 🔲 Phase 4 |
 
 ---
 
-## Known Limitations
+## Architecture Decisions
 
-- **Tools are stubs.** The four analytical tools (`data_query`, `metrics`, `trends`, `charts`) return placeholder `ToolResult` objects with `success=False`. No real computation occurs yet.
-- **No live UI.** The Streamlit app renders a layout shell. It is not yet connected to the LangGraph agent.
-- **LLM integration untested end-to-end.** `GeminiLLM` is implemented but has not been exercised in an integration test with a real API key.
-- **Single dataset assumption.** The data layer is designed for one pre-loaded dataset per session. Dynamic dataset switching is not supported.
-- **No input validation on the Streamlit side.** The UI does not yet validate or sanitise user input before passing it to the agent.
+Eight documented Architecture Decision Records (ADRs) explain the reasoning behind major technical choices:
+
+→ [`docs/decisions.md`](docs/decisions.md)
+
+Decisions covered: LangGraph over LangChain AgentExecutor, TypedDict vs Pydantic for state, DuckDB for computation, Gemini as initial LLM provider, structured vs free-form output split, visible execution plan instead of hidden chain-of-thought, deterministic tools over LLM-computed analytics, and centralised prompt management.
 
 ---
 
-## Future Improvements
+## Documentation
 
-- **Phase 1**: Implement all four tool functions with real DuckDB queries and Plotly renders.
-- **Phase 2**: End-to-end LLM integration — planner produces valid plans on real queries, synthesizer narrates real results.
-- **Phase 3**: Full Streamlit UI — chat panel, execution-plan trace, chart rendering.
-- **Prompt iteration**: Evaluate planner accuracy on 20+ sample queries and refine the system prompt.
-- **Additional LLM providers**: Add `OpenAILLM` behind the existing `BaseLLM` abstraction.
-- **Schema injection**: Pass the dataset column schema to the planner so it can generate more accurate tool parameters.
-- **Export**: Allow users to download query results and charts as CSV/PNG.
+| File | Contents |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | System overview, Capability Registry design, all LangGraph nodes, state field reference, investigation workflow, conditional routing |
+| [`docs/development-plan.md`](docs/development-plan.md) | Phased roadmap with task-level checklist; acceptance criteria per phase; capability implementation roadmap |
+| [`docs/decisions.md`](docs/decisions.md) | 8 ADRs documenting all significant architectural choices |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branching strategy, commit message conventions, coding standards, module dependency rules |

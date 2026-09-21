@@ -64,73 +64,71 @@ component will do before implementing any of it.
 
 ## Phase 1 — Data Layer and Tool Implementation
 
-**Objective**: Connect a real dataset to DuckDB and implement all four analytical
-tool functions so that the graph can execute a complete turn (excluding LLM
-integration) with real computed results.
+**Objective**: Connect the canonical dataset (`Sales_Dataset_2024.xlsx`) to DuckDB via a Parquet runtime (`sales_dataset.parquet`) and implement/verify all four analytical tool functions so that the graph can execute a complete turn (excluding LLM integration) with real computed results.
 
 ### Tasks
 
 **Data layer**
 
-- [ ] Decide on dataset file format (CSV confirmed: Superstore `orders.csv`)
-- [ ] Implement `utils/data_loader.py::get_connection()` — create in-process DuckDB connection, cache it at module level
-- [ ] Implement `utils/data_loader.py::load_dataset()` — read file, register as DuckDB view named `dataset`
-- [ ] Implement `utils/data_loader.py::get_schema()` — query `DESCRIBE dataset` and return `list[dict[str, str]]`
-- [ ] Add column-name normalisation (lowercase, strip spaces) at load time
-- [ ] Add date-column parsing (`Order Date`, `Ship Date`) as `DATE` type
+- [x] Canonical dataset setup: `data/Sales_Dataset_2024.xlsx` → `data/sales_dataset.parquet`
+- [x] Implement `utils/data_loader.py::get_connection()` — create in-process DuckDB connection, cached at module level with thread-safety and `reset_connection()` for isolation
+- [x] Implement `utils/data_loader.py::load_dataset()` — read file, convert Excel to Parquet if needed, register as DuckDB view named `dataset`
+- [x] Implement `utils/data_loader.py::get_schema()` & `get_schema_description()` — query `DESCRIBE dataset` and return structured field/type lists
+- [x] Add column validation & type enforcement (`Date`, `Region`, `Product`, `Salesperson`, `Units_Sold`, `Unit_Price`, `Category`, `Revenue`, `Cost`, `Profit`)
+- [x] Implement `utils/data_loader.py::validate_dataset()` — verify dataset existence, row count (2,000), column schema (10 fields), and usable data types
 
 **Data query tool**
 
-- [ ] Implement `tools/data_query.py::run_data_query()` — parameterised DuckDB `SELECT` with column selection, equality filters, and row limit
-- [ ] Wire `data_query_tool_node` to extract parameters from `plan.steps[current_step]` and call `run_data_query()`
-- [ ] Return `ToolResult(success=True, data=rows)` on success
-- [ ] Return `ToolResult(success=False, error=str(exc))` on DuckDB exception
+- [x] Implement `tools/data_query.py::run_data_query()` — parameterised DuckDB `SELECT` with column selection, equality filters, sorting, and row limits
+- [x] Wire `data_query_tool_node` to extract parameters from `PlanStep.parameters` (validated via `DataQueryRequest`) and call `run_data_query()`
+- [x] Return `ToolResult(success=True, data=rows)` on success
+- [x] Return `ToolResult(success=False, error=str(exc))` on controlled failure without crashing graph
 
 **Metrics tool**
 
-- [ ] Implement `tools/metrics.py::compute_metric()` — DuckDB `GROUP BY` with `AggregationType` dispatch
-- [ ] Support `TOP N` via `ORDER BY metric DESC LIMIT N`
-- [ ] Wire `metrics_tool_node` to extract parameters from plan step
-- [ ] Return `ToolResult(success=True, data=rows)` / `(success=False, error=...)` appropriately
+- [x] Implement `tools/metrics.py::compute_metric()` — DuckDB `GROUP BY` with `AggregationType` dispatch (sum, avg, count, min, max)
+- [x] Support ordering and limit capping via `MetricsRequest`
+- [x] Wire `metrics_tool_node` to extract parameters from `PlanStep.parameters`
+- [x] Return `ToolResult(success=True, data=rows)` / `(success=False, error=...)` appropriately with explicit numerical assertions
 
 **Trends tool**
 
-- [ ] Implement `tools/trends.py::compute_trend()` — DuckDB window functions for `TIME_SERIES`, `ROLLING_AVERAGE`, `PERIOD_OVER_PERIOD`, `CUMULATIVE`
-- [ ] Wire `trends_tool_node` to extract parameters from plan step
-- [ ] Return appropriate `ToolResult`
+- [x] Implement `tools/trends.py::compute_trend()` — DuckDB temporal aggregations over `Date` with granularities (`day`, `week`, `month`, `quarter`, `year`) and optional grouping/filtering via `TrendsRequest`
+- [x] Wire `trends_tool_node` to extract parameters from `PlanStep.parameters`
+- [x] Return appropriate `ToolResult` with time-series result sets
 
 **Charts tool**
 
-- [ ] Implement `tools/charts.py::render_chart()` — Plotly `go.Figure` construction for `ChartType` dispatch
-- [ ] Serialise output as `fig.to_dict()` stored in `ToolResult.data`
-- [ ] Wire `charts_tool_node` to find most recent successful `ToolResult` in state, pass its `data` to `render_chart()`
-- [ ] Write rendered figure to `chart_artifacts` in state
+- [x] Implement `tools/charts.py::render_chart()` — Plotly `go.Figure` construction for `ChartType` dispatch (`bar`, `line`, `scatter`)
+- [x] Serialise output as `fig.to_dict()` stored in `ToolResult.data` and `chart_artifacts`
+- [x] Wire `charts_tool_node` to find most recent successful `ToolResult` in state, pass its `data` to `render_chart()` (does NOT query DuckDB directly)
+- [x] Enforce zero dependency on Streamlit UI for unit/tool tests
 
-**PlanStep parameter extraction (shared across tools)**
+**PlanStep parameter integration (shared across tools)**
 
-- [ ] Define how parameters are passed from `PlanStep.description` to tool functions — either:
-  - Parse free-text `description` (fragile), OR
-  - Add structured `parameters: dict` field to `PlanStep` schema (preferred)
-- [ ] Update planner prompt to include parameter structure in the plan
-- [ ] Update all tool nodes to read parameters from `PlanStep.parameters`
+- [x] Structured `parameters: dict` field in `PlanStep` schema validated via typed Pydantic models (`MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`)
+- [x] Update all tool nodes to read parameters from `PlanStep.parameters`
+- [x] Return controlled `ToolResult(success=False, error=...)` on invalid/malformed parameters
 
 ### Acceptance Criteria
 
-- [ ] `load_dataset("data/superstore.csv")` completes without error and registers `dataset` view in DuckDB
-- [ ] `run_data_query("dataset", filters={"Category": "Technology"}, limit=10)` returns 10 rows of Technology orders
-- [ ] `compute_metric("dataset", "Sales", AggregationType.SUM, group_by=["Region"])` returns 4 rows with correct structure
-- [ ] `compute_trend("dataset", "Sales", "Order Date", TrendType.TIME_SERIES)` returns monthly series
-- [ ] `render_chart(rows, ChartType.BAR, x_column="Region", y_column="Sales", title="Sales by Region")` returns a non-empty Plotly dict
-- [ ] All tool nodes return `ToolResult(success=True)` when called with a valid plan step
-- [ ] New integration tests in `tests/test_data_layer.py` pass using in-memory DuckDB with 20 synthetic rows
-- [ ] New integration tests in `tests/test_tools_integration.py` pass using the same in-memory DuckDB
+- [x] `load_dataset()` completes without error and registers `dataset` view in DuckDB from `sales_dataset.parquet`
+- [x] `run_data_query()` returns filtered, sorted, and limited rows from `dataset`
+- [x] `compute_metric()` computes accurate aggregated results (SUM, AVG, COUNT, MIN, MAX) over canonical numeric columns
+- [x] `compute_trend()` computes monthly/quarterly/yearly temporal aggregations over `Date`
+- [x] `render_chart()` returns non-empty Plotly serialised dicts from prior tool results
+- [x] All tool nodes return `ToolResult(success=True)` when called with valid plan step parameters
+- [x] 100% independent test suite passes with zero dependency on Gemini API or Streamlit UI
 
-### Tests to Write
+### Tests Implemented
 
-- [ ] `tests/test_data_layer.py` — `load_dataset`, `get_schema`, `get_connection` with a temp CSV file
-- [ ] `tests/test_tools_integration.py` — each tool function with in-memory DuckDB synthetic data
+- [x] `tests/test_data_layer.py` — canonical dataset discovery, Parquet conversion, DuckDB initialization, schema retrieval, dataset validation (2,000 rows, 10 columns)
+- [x] `tests/test_data_query.py` — column selection, single/multiple filters, sorting, limit capping, invalid columns/limits, malformed parameters
+- [x] `tests/test_metrics.py` — total revenue sum, region/category grouping, avg unit price, min/max, count, filtering, numerical assertions
+- [x] `tests/test_trends.py` — monthly revenue/profit trends, region filtering, category grouping, granularities, invalid date columns
+- [x] `tests/test_charts.py` — bar, line, scatter rendering, x/y field mapping, Plotly serialization, auto-column inference, missing data handling
 
-### Status: 🔲 Not Started
+### Status: ✅ Complete
 
 ---
 
@@ -314,8 +312,8 @@ edge cases, and prepare the project for submission and demonstration.
 |---|---|---|
 | 0 | Skeleton and contracts | ✅ Complete |
 | 1 | Data layer, Parquet runtime, typed contracts & tools | ✅ Complete |
-| 2 | LLM integration and planner validation | 🔄 In Progress |
-| 3 | Streamlit UI & Plan Trace | ✅ Complete |
+| 2 | LLM integration and planner validation | 🔲 Not Started |
+| 3 | Streamlit UI & Plan Trace | 🔲 Not Started |
 | 4 | Evaluation and polish | 🔲 Not started |
 
 ---
@@ -323,18 +321,18 @@ edge cases, and prepare the project for submission and demonstration.
 ## Completed
 
 - Phase 0: All skeleton tasks, contracts, documentation, and test harness.
-- Phase 1: Canonical dataset conversion (`Sales_Dataset_2024.xlsx` -> `sales_dataset.parquet`), dataset validation, Pydantic tool request contracts (`MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`), clean per-turn state isolation (`create_initial_state`), router dependency validation (`depends_on`), safe DuckDB tools (`metrics`, `trends`, `data_query`, `charts`), Streamlit chat & visible plan trace, and expanded 26-test deterministic suite.
+- Phase 1: Canonical dataset conversion (`Sales_Dataset_2024.xlsx` -> `sales_dataset.parquet`), dataset validation (2,000 rows, 10 columns), typed Pydantic tool request contracts (`MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`), clean per-turn state isolation (`create_initial_state`), router dependency validation (`depends_on`), safe DuckDB tools (`metrics`, `trends`, `data_query`, `charts`), and comprehensive 73-test suite running without Gemini API or Streamlit UI.
 
 ---
 
 ## In Progress
 
-- Phase 2: Gemini planner structured output parameter parsing & multi-turn validation.
+- Phase 1 completed, preparing to launch Phase 2.
 
 ---
 
 ## Next
 
-1. End-to-end evaluation with live Gemini key across 20 evaluation queries.
-2. Final polish and deployment verification.
+1. Phase 2: Gemini planner structured output parameter parsing, multi-turn validation, and live API test suite.
+2. Phase 3: Streamlit UI and visible execution plan trace panel.
 

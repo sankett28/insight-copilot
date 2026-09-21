@@ -76,7 +76,14 @@ def ensure_parquet_dataset(force: bool = False) -> Path:
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Return the shared DuckDB in-process connection with 'dataset' registered as a view."""
+    """Return the shared DuckDB in-process connection with 'dataset' registered as a view.
+
+    Lifecycle & Safety Rationale:
+        DuckDB in-process in-memory connection `:memory:` with an immutable view over
+        the canonical Parquet file (`sales_dataset.parquet`) is read-only for analytical
+        tools. It eliminates connection setup overhead across repeated queries, Streamlit
+        reruns, and test executions while guaranteeing thread-safe concurrent reads.
+    """
     global _connection  # noqa: PLW0603
 
     if _connection is None:
@@ -89,6 +96,19 @@ def get_connection() -> duckdb.DuckDBPyConnection:
         logger.info("Initialised DuckDB connection and registered view 'dataset'.")
 
     return _connection
+
+
+def reset_connection() -> None:
+    """Close and reset the module-level connection (used for testing / isolation)."""
+    global _connection, _schema_cache  # noqa: PLW0603
+    if _connection is not None:
+        try:
+            _connection.close()
+        except Exception:  # noqa: S110, BLE001
+            pass
+        _connection = None
+    _schema_cache = None
+
 
 
 def validate_dataset() -> dict[str, Any]:

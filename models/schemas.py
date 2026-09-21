@@ -85,10 +85,18 @@ class Intent(str, Enum):
 class ToolName(str, Enum):
     """Canonical names for executable tools in the agent."""
 
+    # Phase 1 — deterministic data tools
     DATA_QUERY = "data_query"
     METRICS = "metrics"
     TRENDS = "trends"
     CHARTS = "charts"
+
+    # Phase 2 — extended analytical capabilities
+    DATA_PROFILE = "data_profile"
+    COMPARE = "compare"
+    CONTRIBUTION = "contribution"
+    PROFITABILITY = "profitability"
+    VARIANCE = "variance"
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +222,172 @@ class ChartRequest(BaseModel):
     y: str = Field(..., description="Column for the y-axis.")
     color: str | None = Field(default=None, description="Optional column for color grouping.")
     title: str | None = Field(default=None, description="Optional chart title.")
+
+
+class DataProfileRequest(BaseModel):
+    """Structured parameter contract for the data_profile tool.
+    
+    No required parameters — profiles the full registered dataset view.
+    """
+    pass
+
+
+class CompareRequest(BaseModel):
+    """Structured parameter contract for the compare capability."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column to compare (Units_Sold, Unit_Price, Revenue, Cost, Profit).",
+    )
+    aggregation: Literal["sum", "average", "avg", "count", "min", "max"] = Field(
+        default="sum",
+        description="Aggregation operation to apply.",
+    )
+    dimension: str = Field(
+        ...,
+        description="Categorical dimension column to compare values within (e.g. 'Region', 'Category').",
+    )
+    value_a: str = Field(
+        ...,
+        description="First entity value to compare (e.g. 'North').",
+    )
+    value_b: str = Field(
+        ...,
+        description="Second entity value to compare (e.g. 'South').",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional additional filters applied to both sides of the comparison.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension_column(cls, v: str) -> str:
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+
+class ContributionRequest(BaseModel):
+    """Structured parameter contract for the contribution capability."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column (Units_Sold, Unit_Price, Revenue, Cost, Profit).",
+    )
+    dimension: str = Field(
+        ...,
+        description="Categorical dimension column to break down contribution by (e.g. 'Region', 'Category').",
+    )
+    aggregation: Literal["sum", "avg", "count"] = Field(
+        default="sum",
+        description="Aggregation operation to apply.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional column equality filters.",
+    )
+    limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description="Optional limit on number of items returned.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension_column(cls, v: str) -> str:
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+
+class ProfitabilityRequest(BaseModel):
+    """Structured parameter contract for the profitability capability."""
+
+    dimension: str = Field(
+        ...,
+        description="Categorical dimension column to group by (e.g. 'Product', 'Region', 'Category', 'Salesperson').",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional column equality filters.",
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of rows to return.",
+    )
+    sort_by: Literal["profit_margin_pct", "Revenue", "Profit", "Cost"] = Field(
+        default="profit_margin_pct",
+        description="Metric or calculated margin by which to sort the results.",
+    )
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension_column(cls, v: str) -> str:
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+
+class VarianceRequest(BaseModel):
+    """Structured parameter contract for the variance capability."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column to analyze period-over-period variance for.",
+    )
+    granularity: Literal["day", "week", "month", "quarter", "year"] = Field(
+        default="month",
+        description="Time period granularity for variance calculations.",
+    )
+    group_by: str | None = Field(
+        default=None,
+        description="Optional additional categorical grouping dimension.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional filters applied before variance calculation.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("group_by")
+    @classmethod
+    def validate_group_by(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid group_by dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
 
 
 # ---------------------------------------------------------------------------

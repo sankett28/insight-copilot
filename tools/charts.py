@@ -4,90 +4,198 @@ tools/charts.py
 Charts tool — renders Plotly visualisations from pre-computed tabular data.
 
 Design contract:
-  - Chart data comes exclusively from a preceding tool (data_query, metrics,
-    trends).  This tool never queries the database itself.
-  - The LLM does not choose chart parameters; chart type and axes are derived
-    deterministically from the plan.
+  - Chart data comes exclusively from a preceding tool (data_query, metrics, trends).
+  - Never queries database directly.
   - Output is a Plotly figure serialised to dict (fig.to_dict()) stored in
-    state["chart_artifacts"] for the UI to render.
-
-Current status: PLACEHOLDER — returns a stub result.
+    state["chart_artifacts"] and ToolResult.data.
 """
 
 from __future__ import annotations
 
 import logging
-from enum import Enum
 from typing import Any
 
+import pandas as pd
+import plotly.express as px
+
 from agent.state import AgentState
-from models.schemas import ToolName, ToolResult
+from models.schemas import ChartRequest, ToolName, ToolResult
 
 logger = logging.getLogger(__name__)
-
-
-class ChartType(str, Enum):
-    """Supported Plotly chart types."""
-
-    BAR = "bar"
-    LINE = "line"
-    SCATTER = "scatter"
-    PIE = "pie"
-    AREA = "area"
-    HEATMAP = "heatmap"
 
 
 def charts_tool_node(state: AgentState) -> dict:
     """LangGraph node: generate a Plotly chart from existing tool results.
 
     Reads:
-        state["tool_results"] — to find the data produced by a preceding tool
+        state["tool_results"] — data produced by a preceding tool
         state["plan"]         — to extract chart configuration
-        state["current_step"] — to identify the correct plan step
+        state["current_step"] — index of the active plan step
 
     Writes:
         tool_results     — appends a ToolResult containing the figure dict
         chart_artifacts  — appends the raw Plotly figure dict for UI rendering
     """
-    step = state.get("current_step", 0)
+    step_idx = state.get("current_step", 0)
+    plan = state.get("plan")
+    tool_results = state.get("tool_results", [])
 
-    logger.info("charts_tool_node: executing step %d", step)
+    existing_results = list(tool_results)
 
-    # TODO: Find the most recent successful ToolResult, extract .data, and
-    #       build a Plotly figure according to the plan's chart configuration.
-    result = ToolResult(
-        tool=ToolName.CHARTS,
-        step_number=step + 1,
-        success=False,
-        data=None,
-        error="charts tool not yet implemented — placeholder stub.",
-    )
+    if not plan or step_idx >= len(plan.steps):
+        err_msg = f"Charts tool failed: plan missing or step index {step_idx} out of range."
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.CHARTS,
+                step_number=step_idx + 1,
+                success=False,
+                data=None,
+                error=err_msg,
+            )
+        )
+        return {"tool_results": existing_results}
 
-    return {"tool_results": [result]}
+    plan_step = plan.steps[step_idx]
+    raw_params = plan_step.parameters or {}
+
+    # Find candidate source tool results (from depends_on or latest preceding tool result)
+    source_result: ToolResult | None = None
+    if plan_step.depends_on:
+        dep_step_num = plan_step.depends_on[0]
+        for tr in tool_results:
+            if tr.step_number == dep_step_num and tr.success and tr.data:
+                source_result = tr
+                break
+
+    if source_result is None:
+        # Fallback to the most recent successful tool result with list data
+        for tr in reversed(tool_results):
+            if tr.success and isinstance(tr.data, list) and len(tr.data) > 0:
+                source_result = tr
+                break
+
+    if not source_result or not isinstance(source_result.data, list) or len(source_result.data) == 0:
+        err_msg = "Charts tool failed: No valid preceding tabular data available to plot."
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.CHARTS,
+                step_number=plan_step.step_number,
+                success=False,
+                data=None,
+                error=err_msg,
+            )
+        )
+        return {"tool_results": existing_results}
 
 
-def render_chart(
+    try:
+        # Infer default x and y columns if missing from parameters
+        rows: list[dict[str, Any]] = source_result.data
+        df_sample = pd.DataFrame(rows)
+        cols = df_sample.columns.tolist()
+
+        x_col = raw_params.get("x")
+        y_col = raw_params.get("y")
+
+        if not x_col and len(cols) >= 1:
+            x_col = cols[0]
+        if not y_col and len(cols) >= 2:
+            y_col = cols[1]
+        elif not y_col and len(cols) == 1:
+            y_col = cols[0]
+
+        chart_type = raw_params.get("chart_type", "bar")
+        title = raw_params.get("title", f"{y_col} by {x_col}")
+
+        req = ChartRequest(
+            chart_type=chart_type,
+            x=str(x_col),
+            y=str(y_col),
+            color=raw_params.get("color"),
+            title=title,
+        )
+
+        fig_dict = render_chart_from_data(rows, req)
+
+        existing_results = list(tool_results)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.CHARTS,
+                step_number=plan_step.step_number,
+                success=True,
+                data=fig_dict,
+                error=None,
+            )
+        )
+
+        existing_artifacts = list(state.get("chart_artifacts", []))
+        existing_artifacts.append(fig_dict)
+
+        return {
+            "tool_results": existing_results,
+            "chart_artifacts": existing_artifacts,
+        }
+
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Charts tool execution error: %s", exc)
+        existing_results = list(tool_results)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.CHARTS,
+                step_number=plan_step.step_number,
+                success=False,
+                data=None,
+                error=f"Charts rendering error: {exc}",
+            )
+        )
+        return {"tool_results": existing_results}
+
+
+
+def render_chart_from_data(
     data: list[dict[str, Any]],
-    chart_type: ChartType,
-    x_column: str,
-    y_column: str,
-    color_column: str | None = None,
-    title: str = "",
+    req: ChartRequest,
 ) -> dict[str, Any]:
-    """Render a Plotly chart and return it as a serialisable dict.
+    """Render a Plotly figure and return fig.to_dict()."""
+    df = pd.DataFrame(data)
 
-    Args:
-        data:         List of row dicts (output from a data/metrics/trends tool).
-        chart_type:   Type of chart to render.
-        x_column:     Column to use for the x-axis.
-        y_column:     Column to use for the y-axis.
-        color_column: Optional column for colour grouping.
-        title:        Chart title.
+    if req.chart_type == "bar":
+        fig = px.bar(
+            df,
+            x=req.x,
+            y=req.y,
+            color=req.color,
+            title=req.title,
+            template="plotly_dark",
+        )
+    elif req.chart_type == "line":
+        fig = px.line(
+            df,
+            x=req.x,
+            y=req.y,
+            color=req.color,
+            title=req.title,
+            template="plotly_dark",
+        )
+    elif req.chart_type == "scatter":
+        fig = px.scatter(
+            df,
+            x=req.x,
+            y=req.y,
+            color=req.color,
+            title=req.title,
+            template="plotly_dark",
+        )
+    else:
+        fig = px.bar(
+            df,
+            x=req.x,
+            y=req.y,
+            color=req.color,
+            title=req.title,
+            template="plotly_dark",
+        )
 
-    Returns:
-        Plotly figure serialised as a dict (``fig.to_dict()``).
+    fig.update_layout(margin={"l": 40, "r": 40, "t": 50, "b": 40})
+    return fig.to_dict()
 
-    Raises:
-        NotImplementedError: Until the chart rendering logic is implemented.
-    """
-    raise NotImplementedError("charts tool not yet implemented.")

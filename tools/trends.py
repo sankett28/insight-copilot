@@ -2,41 +2,29 @@
 tools/trends.py
 ---------------
 Trends tool — analyses a numeric measure over time or across an ordered
-dimension using DuckDB window functions.
+dimension using DuckDB.
 
 Design contract:
-  - Trend calculations (rolling averages, period-over-period change, etc.)
-    are executed in DuckDB, not estimated by the LLM.
-  - Results are tabular (list of dicts) — the charts tool renders them visually.
-
-Current status: PLACEHOLDER — returns a stub result.
+  - All trend calculations are executed in DuckDB from validated parameters.
+  - Results are returned as tabular time-series dictionaries.
 """
 
 from __future__ import annotations
 
 import logging
-from enum import Enum
+from typing import Any
 
 from agent.state import AgentState
-from models.schemas import ToolName, ToolResult
+from models.schemas import (
+    CANONICAL_COLUMNS,
+    DATE_COLUMN,
+    ToolName,
+    ToolResult,
+    TrendsRequest,
+)
+from utils.data_loader import get_connection
 
 logger = logging.getLogger(__name__)
-
-
-class TrendType(str, Enum):
-    """Supported trend analysis types."""
-
-    TIME_SERIES = "time_series"
-    """Aggregate a measure by a date/time column."""
-
-    ROLLING_AVERAGE = "rolling_average"
-    """Compute a rolling (moving) average over a window of periods."""
-
-    PERIOD_OVER_PERIOD = "period_over_period"
-    """Compute absolute and percentage change between consecutive periods."""
-
-    CUMULATIVE = "cumulative"
-    """Running cumulative sum of a measure over time."""
 
 
 def trends_tool_node(state: AgentState) -> dict:
@@ -49,46 +37,114 @@ def trends_tool_node(state: AgentState) -> dict:
     Writes:
         tool_results — appends a ToolResult (success or error)
     """
-    step = state.get("current_step", 0)
+    step_idx = state.get("current_step", 0)
+    plan = state.get("plan")
 
-    logger.info("trends_tool_node: executing step %d", step)
+    if not plan or step_idx >= len(plan.steps):
+        err_msg = f"Trends tool failed: plan missing or step index {step_idx} out of range."
+        return {
+            "tool_results": [
+                ToolResult(
+                    tool=ToolName.TRENDS,
+                    step_number=step_idx + 1,
+                    success=False,
+                    data=None,
+                    error=err_msg,
+                )
+            ]
+        }
 
-    # TODO: Extract trend parameters from plan.steps[step] and run DuckDB analysis.
-    result = ToolResult(
-        tool=ToolName.TRENDS,
-        step_number=step + 1,
-        success=False,
-        data=None,
-        error="trends tool not yet implemented — placeholder stub.",
+    plan_step = plan.steps[step_idx]
+    raw_params = plan_step.parameters or {}
+
+    existing_results = list(state.get("tool_results", []))
+
+    try:
+        req = TrendsRequest.model_validate(raw_params)
+        data = execute_trends_request(req)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.TRENDS,
+                step_number=plan_step.step_number,
+                success=True,
+                data=data,
+                error=None,
+            )
+        )
+        return {"tool_results": existing_results}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Trends tool execution error: %s", exc)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.TRENDS,
+                step_number=plan_step.step_number,
+                success=False,
+                data=None,
+                error=f"Trends calculation error: {exc}",
+            )
+        )
+        return {"tool_results": existing_results}
+
+
+
+def execute_trends_request(req: TrendsRequest) -> list[dict[str, Any]]:
+    """Generate safe SQL for a TrendsRequest and execute against DuckDB."""
+    conn = get_connection()
+
+    metric_col = req.metric
+    date_col = req.date_column
+    granularity = req.granularity.lower()
+
+    # Build WHERE filters safely
+    where_clauses: list[str] = ["1=1"]
+    if req.filters:
+        for col, val in req.filters.items():
+            matched_col = None
+            for c in CANONICAL_COLUMNS:
+                if col.lower() == c.lower():
+                    matched_col = c
+                    break
+            if matched_col:
+                if isinstance(val, str):
+                    clean_val = val.replace("'", "''")
+                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+                else:
+                    where_clauses.append(f"{matched_col} = {val}")
+
+    where_str = " AND ".join(where_clauses)
+    metric_alias = f"total_{metric_col}".lower()
+
+    # Optional group_by dimension
+    group_select = ""
+    group_clause = ""
+    if req.group_by:
+        matched_group = None
+        for c in CANONICAL_COLUMNS:
+            if req.group_by.lower() == c.lower():
+                matched_group = c
+                break
+        if matched_group:
+            group_select = f"{matched_group}, "
+            group_clause = f", {matched_group}"
+
+    # DuckDB DATE_TRUNC function
+    sql = (
+        f"SELECT {group_select}DATE_TRUNC('{granularity}', {date_col})::VARCHAR AS period, "
+        f"SUM({metric_col}) AS {metric_alias} "
+        f"FROM dataset WHERE {where_str} "
+        f"GROUP BY DATE_TRUNC('{granularity}', {date_col}){group_clause} "
+        f"ORDER BY period ASC"
     )
 
-    return {"tool_results": [result]}
+    logger.info("Executing Trends SQL: %s", sql)
+    df = conn.execute(sql).fetchdf()
 
+    # Clean date formatting for period
+    records = df.to_dict(orient="records")
+    for r in records:
+        if "period" in r and isinstance(r["period"], str):
+            # Trim timestamp to YYYY-MM-DD or YYYY-MM if appropriate
+            r["period"] = r["period"].split(" ")[0]
 
-def compute_trend(
-    table: str,
-    measure_column: str,
-    time_column: str,
-    trend_type: TrendType = TrendType.TIME_SERIES,
-    group_by: list[str] | None = None,
-    filters: dict[str, object] | None = None,
-    window_size: int = 3,
-) -> list[dict]:
-    """Compute a trend analysis via DuckDB.
+    return records
 
-    Args:
-        table:          Source table/view name.
-        measure_column: Numeric column to analyse.
-        time_column:    Date/time column to order by.
-        trend_type:     Type of trend analysis to perform.
-        group_by:       Optional grouping dimensions (e.g., category, region).
-        filters:        Column-to-value equality filters applied before analysis.
-        window_size:    Number of periods for rolling calculations.
-
-    Returns:
-        List of row dicts with time labels and computed trend values.
-
-    Raises:
-        NotImplementedError: Until the data layer is ready.
-    """
-    raise NotImplementedError("trends tool not yet implemented.")

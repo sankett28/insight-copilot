@@ -1,340 +1,219 @@
 # Development Plan — Insight Copilot
 
-This is a **living engineering document**. Update it whenever implementation
-progresses. A task is marked complete only when the implementation satisfies
-its acceptance criteria and any associated tests pass. The existence of a file
-does not mean its implementation is complete.
+This is a **living engineering document** for **Insight Copilot**. A task is marked complete only when the implementation satisfies its acceptance criteria and any associated tests pass.
 
 ---
 
-## Phase 0 — Project Skeleton and Contracts
+## Canonical Dataset & Data Architecture
 
-**Objective**: Establish the repository structure, typed interfaces, and test
-harness before any live API or data calls are made. Define what every
-component will do before implementing any of it.
+- **Canonical Source File**: `data/Sales_Dataset_2024.xlsx` (2,000 rows, 10 columns)
+- **Runtime Representation**: `data/sales_dataset.parquet` (automatically converted on first startup)
+- **Execution Engine**: DuckDB in-process OLAP engine over Parquet (`CREATE VIEW dataset AS SELECT * FROM read_parquet(...)`)
 
-### Tasks
+### Canonical Dataset Schema (10 Fields)
 
-- [x] Repository initialised and pushed to GitHub
-- [x] `.gitignore` with secrets, venvs, DuckDB files, and dataset files excluded
-- [x] `.gitattributes` enforcing LF line endings
-- [x] `CONTRIBUTING.md` — branching strategy, commit conventions, coding standards
-- [x] `requirements.txt` with all production and development dependencies
-- [x] `.env.example` — template for all environment variables
-- [x] Virtual environment (`.venv`) with all dependencies installed
-- [x] `models/schemas.py` — Pydantic contracts: `Intent`, `ToolName`, `AnalysisPlan`, `PlanStep`, `ToolResult`, `Message`, `Role`
-- [x] `agent/state.py` — `AgentState` TypedDict with `operator.add` reducers on list fields
-- [x] `llm/base.py` — `BaseLLM` abstract interface with `chat()` and `structured_chat()`
-- [x] `llm/gemini.py` — `GeminiLLM` skeleton: JSON mode for structured output, flat-prompt for chat
-- [x] `llm/factory.py` — `create_llm()` factory with `LLMProvider` enum
-- [x] `agent/planner.py` — planner node skeleton with error handling and history truncation
-- [x] `agent/router.py` — `router_node` conditional edge + `advance_step` node
-- [x] `agent/synthesizer.py` — synthesizer node skeleton with fallback behaviour
-- [x] `agent/graph.py` — full `StateGraph` wiring: 9 nodes, static edges, conditional routing edge
-- [x] `tools/data_query.py` — stub node + `run_data_query()` interface defined
-- [x] `tools/metrics.py` — stub node + `compute_metric()` + `AggregationType` enum
-- [x] `tools/trends.py` — stub node + `compute_trend()` + `TrendType` enum
-- [x] `tools/charts.py` — stub node + `render_chart()` + `ChartType` enum
-- [x] `utils/prompts.py` — `PLANNER_SYSTEM_PROMPT` and `SYNTHESIZER_SYSTEM_PROMPT`
-- [x] `utils/data_loader.py` — `load_dataset()`, `get_schema()`, `get_connection()` interfaces defined
-- [x] `app.py` — Streamlit shell: page config, sidebar, two-column layout (chat + trace)
-- [x] `.streamlit/config.toml` — dark theme configuration
-- [x] `conftest.py` — project root on `sys.path` for pytest
-- [x] `pytest.ini` — test discovery configuration
-- [x] `tests/test_graph.py` — graph construction tests (mock LLM, assert node set)
-- [x] `tests/test_router.py` — router logic and step-advance tests (10 cases)
-- [x] `tests/test_tools.py` — tool node stubs and interface tests (15 cases)
-- [x] `docs/architecture.md` — field-level state docs, node IO tables, routing algorithm, data flow trace
-- [x] `docs/decisions.md` — 8 ADRs
-- [x] `docs/development-plan.md` — this document
-- [x] `README.md` — professional engineering documentation with Mermaid diagram
+1. `Date` (TIMESTAMP) — Temporal date field (2024-01-01 to 2024-12-31)
+2. `Region` (VARCHAR) — Categorical dimension (`North`, `South`, `East`, `West`)
+3. `Product` (VARCHAR) — Categorical dimension (`Smartwatch`, `Monitor`, `Mobile`, `Laptop`, etc.)
+4. `Salesperson` (VARCHAR) — Categorical dimension (`Alice`, `Bob`, `Charlie`, `David`, `Eva`, etc.)
+5. `Units_Sold` (DOUBLE) — Numeric metric
+6. `Unit_Price` (DOUBLE) — Numeric metric
+7. `Category` (VARCHAR) — Categorical dimension (`Accessories`, `Office`, `Electronics`)
+8. `Revenue` (DOUBLE) — Numeric metric
+9. `Cost` (DOUBLE) — Numeric metric
+10. `Profit` (DOUBLE) — Numeric metric
 
-### Acceptance Criteria
+---
 
-- [x] `pytest tests/ -v` passes with 27 tests, 0 failures, no live API calls required
-- [x] Graph compiles and contains all 9 expected nodes (verified by `test_graph.py`)
-- [x] Router dispatches correctly for all tool types and edge cases (verified by `test_router.py`)
-- [x] All tool stubs return `ToolResult` with correct `tool` and `step_number` (verified by `test_tools.py`)
-- [x] No API keys or secrets in any committed file
-- [x] All public functions and classes have type hints and docstrings
+## Current Status Table
+
+| Phase | Description | Status |
+|---|---|---|
+| **Phase 0** | Architecture & Contracts | **Complete** |
+| **Phase 1** | Deterministic Data Layer & Tools | **Complete** |
+| **Phase 2** | LLM Planning & End-to-End Agent | **In Progress** |
+| **Phase 3** | Streamlit Product Experience | **In Progress** |
+| **Phase 4** | Evaluation, Hardening & Deployment | **Not Started** |
+
+---
+
+## Phase 0 — Architecture & Contracts
+
+**Objective**: Establish the repository structure, typed interfaces, LangGraph state machine, and test harness before any live API calls.
+
+### Tasks & Verification
+
+- [x] Repository initialised with branch controls and `.gitignore` excluding secrets and venvs.
+- [x] `CONTRIBUTING.md` enforcing commit conventions, logical branching, and PR workflows.
+- [x] `requirements.txt` with core stack: `langgraph`, `langchain-core`, `google-generativeai`, `pydantic>=2.7`, `duckdb>=1.0`, `pandas>=2.2`, `plotly>=5.22`, `streamlit>=1.36`, `pytest`.
+- [x] `models/schemas.py`: Pydantic data contracts (`Intent`, `ToolName`, `AnalysisPlan`, `PlanStep`, `ToolResult`, `Message`, `Role`, `MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`, `DatasetSchema`).
+- [x] `agent/state.py`: `AgentState` TypedDict with explicit separation of persistent conversation state (`messages`) vs per-turn state (`query`, `plan`, `selected_tools`, `current_step`, `tool_results`, `chart_artifacts`, `final_answer`, `errors`). Added `create_initial_state`.
+- [x] `llm/base.py`, `llm/gemini.py`, `llm/factory.py`: `BaseLLM` interface and `GeminiLLM` factory.
+- [x] `agent/planner.py`: Planner node skeleton with Gemini JSON mode output parsing.
+- [x] `agent/router.py`: Deterministic `router_node` conditional edge and `advance_step` node.
+- [x] `agent/synthesizer.py`: Synthesizer node skeleton with narrative synthesis and error fallback.
+- [x] `agent/graph.py`: LangGraph `StateGraph` compilation with 9 nodes and static/conditional edges.
+- [x] `docs/architecture.md`, `docs/decisions.md`: Architecture diagrams, field-level state docs, node IO contracts, and 8 ADRs.
 
 ### Status: ✅ Complete
 
 ---
 
-## Phase 1 — Data Layer and Tool Implementation
+## Phase 1 — Deterministic Data Layer & Tools
 
-**Objective**: Connect a real dataset to DuckDB and implement all four analytical
-tool functions so that the graph can execute a complete turn (excluding LLM
-integration) with real computed results.
+**Objective**: Connect the canonical `Sales_Dataset_2024.xlsx` dataset to a reliable DuckDB runtime and prove that all four analytical tools produce deterministic, validated results independently of the LLM and Streamlit UI.
+
+### Five Functional Areas
+
+#### A. Dataset & Runtime Layer (`utils/data_loader.py`)
+- [x] Verify `Sales_Dataset_2024.xlsx` exists in `data/`.
+- [x] Implement automatic Excel-to-Parquet conversion (`ensure_parquet_dataset`), generating `data/sales_dataset.parquet`.
+- [x] Implement `get_dataset_path()` resolving paths relative to `PROJECT_ROOT`.
+- [x] Verify `Date` column parsing as `TIMESTAMP` datetime.
+- [x] Validate exact row count (2,000 rows) and 10 canonical columns via `validate_dataset()`.
+- [x] Implement `get_connection()` for thread-safe DuckDB in-process connection with view `dataset`.
+- [x] Implement `get_schema()` and `get_schema_description()` returning structured prompt summary metadata.
+
+#### B. Data Query Tool (`tools/data_query.py`)
+- [x] Implement `execute_data_query_request(req: DataQueryRequest)` selecting known columns.
+- [x] Support filtering (`filters: dict[str, Any]`), sorting (`sort_by`, `sort_order`), and row limit (capped at 100 max).
+- [x] Reject invalid/unknown columns cleanly and construct safe DuckDB SELECT queries without LLM SQL interpolation.
+- [x] Return structured `ToolResult(success=True, data=rows)` or `ToolResult(success=False, error=str(exc))`.
+
+#### C. Metrics Tool (`tools/metrics.py`)
+- [x] Support canonical numeric fields: `Units_Sold`, `Unit_Price`, `Revenue`, `Cost`, `Profit`.
+- [x] Support aggregations: `sum`, `average`/`avg`, `count`, `min`, `max`, `median`.
+- [x] Support `group_by`, `filters`, `sort` direction, and `limit`.
+- [x] Generate safe SQL from validated `MetricsRequest` parameters and execute via DuckDB.
+
+#### D. Trends Tool (`tools/trends.py`)
+- [x] Use `Date` as canonical temporal field.
+- [x] Support time granularities: `day`, `week`, `month`, `quarter`, `year` using DuckDB `DATE_TRUNC`.
+- [x] Support target numeric metric, optional `group_by` dimension, and `filters`.
+- [x] Format ISO period strings cleanly (`YYYY-MM-DD`).
+
+#### E. Charts Tool (`tools/charts.py`)
+- [x] Support Plotly chart types: `bar`, `line`, `scatter`.
+- [x] Consume preceding deterministic tool results from `state["tool_results"]` (or step specified in `depends_on`).
+- [x] Return `fig.to_dict()` in `ToolResult.data` and `state["chart_artifacts"]`.
+- [x] Ensure charts do not independently query the dataset.
+
+---
+
+### Phase 1 Test Harness
+
+All tests run **100% offline**, without Streamlit, and without requiring a live Gemini API key:
+
+- **Data Layer (`tests/test_data_loader.py`)**:
+  - `test_dataset_path_resolution`: Verifies Parquet path resolution and existence.
+  - `test_validate_canonical_dataset`: Validates 2,000 rows, 10 columns, and schema types.
+  - `test_duckdb_schema_types`: Verifies DuckDB dataset view column types.
+  - `test_schema_description_summary`: Verifies prompt summary formatting.
+  - `test_missing_excel_file_raises`: Verifies controlled error if Excel file is missing.
+
+- **Analytical Tools (`tests/test_tools.py`)**:
+  - `test_metrics_total_revenue`: Computes total revenue sum ($20.7M+).
+  - `test_metrics_revenue_by_category`: Validates grouping by Category (`Accessories`, `Office`, `Electronics`).
+  - `test_metrics_profit_by_region`: Validates grouping by Region with limits.
+  - `test_metrics_invalid_column`: Verifies Pydantic rejection of unknown metric columns (`Customer`).
+  - `test_metrics_invalid_group_by`: Verifies rejection of unknown `group_by` columns.
+  - `test_metrics_tool_node_execution`: Integration test for `metrics_tool_node`.
+  - `test_trends_monthly_revenue`: Computes 12 monthly revenue data points for 2024.
+  - `test_trends_monthly_profit`: Computes monthly profit trend.
+  - `test_trends_with_filter_and_grouping`: Computes monthly trend filtered by Region and grouped by Category.
+  - `test_trends_invalid_date_column`: Verifies rejection of invalid date columns.
+  - `test_trends_tool_node_execution`: Integration test for `trends_tool_node`.
+  - `test_data_query_filtered`: Tests raw row filtering by Region.
+  - `test_data_query_limit_cap`: Verifies row limit enforcement.
+  - `test_charts_rendering_bar`, `test_charts_rendering_scatter_and_line`: Verifies Plotly figure generation.
+  - `test_charts_tool_node_multi_step`: Multi-step test where charts consumes preceding trends output.
+  - `test_charts_missing_preceding_data`: Verifies controlled failure when no tabular data exists.
+  - `test_tool_node_malformed_plan_step`: Verifies controlled `ToolResult(success=False)` on invalid parameters.
+
+- **Router Node (`tests/test_router.py`)**:
+  - `test_router_single_step`: Validates single-tool step dispatching.
+  - `test_router_multi_step_dependency_success`: Validates step routing when dependencies succeed.
+  - `test_router_dependency_failed_routes_to_error`: Redirects to `error_handler` if a dependent step failed.
+  - `test_router_all_steps_complete_routes_to_synthesizer`: Routes to `synthesizer` upon step completion.
+  - `test_advance_step`: Increments `current_step`.
+
+- **State & Graph (`tests/test_graph.py`)**:
+  - `test_graph_single_tool_execution`: Full MockLLM single-step execution pipeline.
+  - `test_graph_multi_tool_execution`: Full MockLLM multi-step execution pipeline (trends -> charts).
+  - `test_state_isolation_between_turns`: Verifies `create_initial_state` state isolation.
+
+---
+
+### Phase 1 Exit Criteria Checklist
+
+1. [x] DuckDB reliably accesses `data/sales_dataset.parquet` generated from `Sales_Dataset_2024.xlsx`.
+2. [x] Schema validation passes (2,000 rows, 10 canonical columns).
+3. [x] `data_query` tool works deterministically.
+4. [x] `metrics` tool works deterministically.
+5. [x] `trends` tool works deterministically.
+6. [x] `charts` tool works deterministically.
+7. [x] Tool nodes correctly consume structured `PlanStep.parameters`.
+8. [x] Invalid parameters produce controlled `ToolResult(success=False, error=...)` failures without crashing the graph.
+9. [x] 31/31 unit tests pass offline without Gemini API keys.
+10. [x] No Streamlit dependency required for tool test execution.
+11. [x] Implementation matches canonical `Sales_Dataset_2024.xlsx` schema.
+12. [x] Technical documentation (`docs/architecture.md`, `docs/decisions.md`) matches codebase.
+
+### Status: ✅ Complete
+
+---
+
+## Phase 2 — LLM Planning & End-to-End Agent
+
+**Objective**: Connect the deterministic execution engine to Gemini for live query intent classification, structured `AnalysisPlan` creation, and natural language answer synthesis.
 
 ### Tasks
 
-**Data layer**
+- [ ] Refine `PLANNER_SYSTEM_PROMPT` to enforce structured parameter output matching `MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, and `ChartRequest`.
+- [ ] Verify `GeminiLLM.structured_chat` reliably parses structured `AnalysisPlan` outputs.
+- [ ] Implement live API integration test suite evaluating Gemini planner across 20 representative query types.
+- [ ] Verify Synthesizer prompt (`SYNTHESIZER_SYSTEM_PROMPT`) prevents numerical hallucination and uses only verified `ToolResult` data.
+- [ ] Verify multi-turn context retention across sequential questions in `AgentState`.
+- [ ] Implement malformed planner JSON recovery in `planner_node`.
 
-- [ ] Decide on dataset file format (CSV confirmed: Superstore `orders.csv`)
-- [ ] Implement `utils/data_loader.py::get_connection()` — create in-process DuckDB connection, cache it at module level
-- [ ] Implement `utils/data_loader.py::load_dataset()` — read file, register as DuckDB view named `dataset`
-- [ ] Implement `utils/data_loader.py::get_schema()` — query `DESCRIBE dataset` and return `list[dict[str, str]]`
-- [ ] Add column-name normalisation (lowercase, strip spaces) at load time
-- [ ] Add date-column parsing (`Order Date`, `Ship Date`) as `DATE` type
+### Status: 🔄 In Progress
 
-**Data query tool**
+---
 
-- [ ] Implement `tools/data_query.py::run_data_query()` — parameterised DuckDB `SELECT` with column selection, equality filters, and row limit
-- [ ] Wire `data_query_tool_node` to extract parameters from `plan.steps[current_step]` and call `run_data_query()`
-- [ ] Return `ToolResult(success=True, data=rows)` on success
-- [ ] Return `ToolResult(success=False, error=str(exc))` on DuckDB exception
+## Phase 3 — Streamlit Product Experience
 
-**Metrics tool**
+**Objective**: Provide a clean, analyst-focused web UI exposing conversation history, visible execution plans, tool trace logs, and Plotly charts.
 
-- [ ] Implement `tools/metrics.py::compute_metric()` — DuckDB `GROUP BY` with `AggregationType` dispatch
-- [ ] Support `TOP N` via `ORDER BY metric DESC LIMIT N`
-- [ ] Wire `metrics_tool_node` to extract parameters from plan step
-- [ ] Return `ToolResult(success=True, data=rows)` / `(success=False, error=...)` appropriately
+### Tasks
 
-**Trends tool**
+- [x] Streamlit layout in `app.py` with dual-column layout (Chat vs. Plan & Tool Trace).
+- [x] Automatic dataset discovery and sidebar schema metadata rendering.
+- [x] Session state management (`st.session_state.messages`, `current_plan`, `current_tool_results`, `current_charts`).
+- [x] Render visible execution plan (intent, rationale, step parameters).
+- [x] Render tool trace expandable cards with row tables and JSON outputs.
+- [x] Embed Plotly charts directly into conversation stream.
+- [ ] Refine multi-turn conversation UI styling and error alert banners.
 
-- [ ] Implement `tools/trends.py::compute_trend()` — DuckDB window functions for `TIME_SERIES`, `ROLLING_AVERAGE`, `PERIOD_OVER_PERIOD`, `CUMULATIVE`
-- [ ] Wire `trends_tool_node` to extract parameters from plan step
-- [ ] Return appropriate `ToolResult`
+### Status: 🔄 In Progress
 
-**Charts tool**
+---
 
-- [ ] Implement `tools/charts.py::render_chart()` — Plotly `go.Figure` construction for `ChartType` dispatch
-- [ ] Serialise output as `fig.to_dict()` stored in `ToolResult.data`
-- [ ] Wire `charts_tool_node` to find most recent successful `ToolResult` in state, pass its `data` to `render_chart()`
-- [ ] Write rendered figure to `chart_artifacts` in state
+## Phase 4 — Evaluation, Hardening & Deployment
 
-**PlanStep parameter extraction (shared across tools)**
+**Objective**: Hardening, 25-query benchmark evaluation, production packaging, and public deployment.
 
-- [ ] Define how parameters are passed from `PlanStep.description` to tool functions — either:
-  - Parse free-text `description` (fragile), OR
-  - Add structured `parameters: dict` field to `PlanStep` schema (preferred)
-- [ ] Update planner prompt to include parameter structure in the plan
-- [ ] Update all tool nodes to read parameters from `PlanStep.parameters`
+### Tasks
 
-### Acceptance Criteria
-
-- [ ] `load_dataset("data/superstore.csv")` completes without error and registers `dataset` view in DuckDB
-- [ ] `run_data_query("dataset", filters={"Category": "Technology"}, limit=10)` returns 10 rows of Technology orders
-- [ ] `compute_metric("dataset", "Sales", AggregationType.SUM, group_by=["Region"])` returns 4 rows with correct structure
-- [ ] `compute_trend("dataset", "Sales", "Order Date", TrendType.TIME_SERIES)` returns monthly series
-- [ ] `render_chart(rows, ChartType.BAR, x_column="Region", y_column="Sales", title="Sales by Region")` returns a non-empty Plotly dict
-- [ ] All tool nodes return `ToolResult(success=True)` when called with a valid plan step
-- [ ] New integration tests in `tests/test_data_layer.py` pass using in-memory DuckDB with 20 synthetic rows
-- [ ] New integration tests in `tests/test_tools_integration.py` pass using the same in-memory DuckDB
-
-### Tests to Write
-
-- [ ] `tests/test_data_layer.py` — `load_dataset`, `get_schema`, `get_connection` with a temp CSV file
-- [ ] `tests/test_tools_integration.py` — each tool function with in-memory DuckDB synthetic data
+- [ ] Benchmark 25 representative evaluation queries (single-tool, multi-tool, multi-turn, edge cases).
+- [ ] Measure numerical accuracy, plan correctness, and response latency.
+- [ ] Package repository for Streamlit Community Cloud deployment with Streamlit Secrets (`GEMINI_API_KEY`).
+- [ ] Verify public URL accessibility in Incognito browser mode.
 
 ### Status: 🔲 Not Started
 
 ---
 
-## Phase 2 — LLM Integration and Planner Validation
+## Current Next Step
 
-**Objective**: Validate that the planner produces correct `AnalysisPlan` objects
-on real queries, and that the synthesizer produces coherent answers from real
-tool results. Requires a live Gemini API key.
-
-### Tasks
-
-**Planner integration**
-
-- [ ] Write an integration test script (not in the main pytest suite) that:
-  - Loads `.env` and initialises `GeminiLLM`
-  - Sends 15 sample queries (covering all 5 intent types)
-  - Asserts that the returned `AnalysisPlan` has the expected `intent` and at least one valid `step`
-- [ ] Iterate on `PLANNER_SYSTEM_PROMPT` until ≥ 13/15 queries produce correct plans
-- [ ] Inject dataset schema (`get_schema()` output) into the planner prompt
-- [ ] Add `PlanStep.parameters` support if not done in Phase 1 (see Phase 1 parameter extraction task)
-
-**GeminiLLM multi-turn improvement**
-
-- [ ] Migrate `GeminiLLM.chat()` from flat prompt string to `genai.ChatSession` for proper multi-turn context
-- [ ] Remove the `TODO` comment in `gemini.py` when complete
-
-**Synthesizer integration**
-
-- [ ] Write an integration test that feeds real `ToolResult` objects (from Phase 1 tools) to the synthesizer
-- [ ] Verify the synthesizer does not invent numbers not present in the `ToolResult.data`
-- [ ] Iterate on `SYNTHESIZER_SYSTEM_PROMPT` if hallucination is observed
-
-**End-to-end smoke test**
-
-- [ ] Write a single end-to-end test: `build_graph(llm).invoke({"query": "What is total sales by region?", "messages": []})` and assert:
-  - `final_answer` is a non-empty string
-  - `tool_results` contains at least one `ToolResult(success=True)`
-  - `errors` is empty
-
-### Acceptance Criteria
-
-- [ ] 13/15 sample planning queries produce an `AnalysisPlan` with the correct `intent`
-- [ ] End-to-end smoke test passes with a live Gemini API key
-- [ ] Synthesizer answer for a single-step metrics query does not contain any numbers absent from the `ToolResult.data`
-- [ ] `GeminiLLM.chat()` uses `ChatSession` for conversation history
-
-### Tests to Write
-
-- [ ] `tests/integration/test_planner_live.py` — live API (skipped in CI, run manually)
-- [ ] `tests/integration/test_e2e.py` — full graph invocation (live API, skipped in CI)
-
-### Status: 🔲 Not Started
-
----
-
-## Phase 3 — Streamlit UI
-
-**Objective**: Build the full Streamlit chat interface with execution-plan trace,
-chart rendering, and session-state management.
-
-### Tasks
-
-**Session state**
-
-- [ ] Initialise `st.session_state["messages"]` as empty list at startup
-- [ ] Initialise `st.session_state["agent_state"]` to persist `AgentState` across reruns
-- [ ] Wrap `build_graph(llm)` and `load_dataset()` in `@st.cache_resource` to prevent re-execution on reruns
-
-**Dataset loading**
-
-- [ ] Sidebar: file uploader (`st.file_uploader`) accepting CSV, Parquet, Excel
-- [ ] On upload: call `load_dataset(uploaded_file)`, show column schema in sidebar
-- [ ] Fallback: read `DATASET_PATH` env var if no file is uploaded
-
-**Chat panel**
-
-- [ ] Render `st.session_state["messages"]` as alternating user/assistant chat bubbles
-- [ ] `st.chat_input` for new queries
-- [ ] On submit: call `graph.invoke({"query": query, "messages": session_messages})`
-- [ ] Display `final_answer` as new assistant message
-- [ ] Loading spinner during graph execution
-
-**Execution trace panel**
-
-- [ ] After each invocation, render `plan.intent` and `plan.rationale`
-- [ ] Render each `PlanStep` as a numbered item with tool name and description
-- [ ] Render each `ToolResult` with success/failure indicator and step number
-- [ ] Render `errors` in an `st.error()` box if non-empty
-
-**Chart rendering**
-
-- [ ] After each invocation, check `chart_artifacts`
-- [ ] For each figure dict: `st.plotly_chart(go.Figure(fig_dict), use_container_width=True)`
-
-**Error display**
-
-- [ ] If `errors` is non-empty, show `st.error()` with all error messages
-- [ ] If `final_answer` starts with "I'm sorry", style as warning
-
-### Acceptance Criteria
-
-- [ ] User can upload a CSV, type a question, and receive a text answer in the chat panel
-- [ ] Execution plan (intent + rationale + steps) appears in the trace panel
-- [ ] Charts generated by the chart tool render in the chat or trace panel
-- [ ] Conversation history persists across multiple questions in the same session
-- [ ] Page does not crash on an invalid query — shows a user-facing error message
-
-### Tests to Write
-
-- [ ] Manual verification checklist (no automated UI tests at this stage)
-
-### Status: 🔲 Not Started
-
----
-
-## Phase 4 — Evaluation and Polish
-
-**Objective**: Validate end-to-end quality across a broad set of queries, harden
-edge cases, and prepare the project for submission and demonstration.
-
-### Tasks
-
-**Query evaluation**
-
-- [ ] Write 25 representative queries covering all intent types and edge cases
-- [ ] Run each through the full graph and record: plan accuracy, tool execution success, synthesizer quality
-- [ ] Target: ≥ 22/25 queries produce a correct, useful answer
-- [ ] Fix identified failure cases via prompt iteration or tool fix
-
-**Edge case hardening**
-
-- [ ] Empty query: returns a meaningful error message (not a stack trace)
-- [ ] Query with no matching data: tool returns empty `[]`, synthesizer acknowledges it
-- [ ] Ambiguous query: planner sets `intent=UNKNOWN`, returns a clarification request
-- [ ] Malformed `AnalysisPlan` from LLM: `model_validate_json` raises, planner catches, routes to error_handler
-
-**Performance**
-
-- [ ] DuckDB query latency < 500ms for any tool on the Superstore dataset
-- [ ] Full graph invocation (excluding LLM API latency) < 1s
-
-**Code quality**
-
-- [ ] All modules ≤ 200 lines
-- [ ] All public functions have type hints and docstrings
-- [ ] No bare `except:` clauses
-- [ ] `ruff check .` passes with zero warnings (add ruff to dev dependencies)
-
-**Documentation**
-
-- [ ] `README.md` updated to reflect completed status
-- [ ] `docs/development-plan.md` all Phase 1–3 tasks marked complete
-- [ ] `docs/architecture.md` updated to remove "stub" labels from implemented tools
-
-**Deployment**
-
-- [ ] Push to `main` and connect to Streamlit Community Cloud
-- [ ] Configure `GEMINI_API_KEY` via Streamlit Cloud secrets panel
-- [ ] Verify the deployed app loads and can answer a test query
-
-### Acceptance Criteria
-
-- [ ] ≥ 22/25 evaluation queries produce a correct answer
-- [ ] All 27 existing tests still pass
-- [ ] DuckDB queries complete in < 500ms
-- [ ] Deployed to Streamlit Community Cloud and accessible via public URL
-
-### Tests to Write
-
-- [ ] Extend `tests/` with regression cases from the evaluation queries that previously failed
-
-### Status: 🔲 Not Started
-
----
-
----
-
-## Current Status
-
-| Phase | Description | Status |
-|---|---|---|
-| 0 | Skeleton and contracts | ✅ Complete |
-| 1 | Data layer, Parquet runtime, typed contracts & tools | ✅ Complete |
-| 2 | LLM integration and planner validation | 🔄 In Progress |
-| 3 | Streamlit UI & Plan Trace | ✅ Complete |
-| 4 | Evaluation and polish | 🔲 Not started |
-
----
-
-## Completed
-
-- Phase 0: All skeleton tasks, contracts, documentation, and test harness.
-- Phase 1: Canonical dataset conversion (`Sales_Dataset_2024.xlsx` -> `sales_dataset.parquet`), dataset validation, Pydantic tool request contracts (`MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`), clean per-turn state isolation (`create_initial_state`), router dependency validation (`depends_on`), safe DuckDB tools (`metrics`, `trends`, `data_query`, `charts`), Streamlit chat & visible plan trace, and expanded 26-test deterministic suite.
-
----
-
-## In Progress
-
-- Phase 2: Gemini planner structured output parameter parsing & multi-turn validation.
-
----
-
-## Next
-
-1. End-to-end evaluation with live Gemini key across 20 evaluation queries.
-2. Final polish and deployment verification.
-
+**Single Most Important Engineering Action Remaining**:
+Refine the `PLANNER_SYSTEM_PROMPT` and run a live Gemini API test script (`tests/integration/test_planner_live.py`) to verify that Gemini produces valid `PlanStep.parameters` for all 4 tool schemas (`metrics`, `trends`, `data_query`, `charts`) on complex analytical questions.

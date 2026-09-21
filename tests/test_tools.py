@@ -248,3 +248,99 @@ def test_charts_tool_node_multi_step():
     assert len(artifacts) == 1
     assert isinstance(artifacts[0], dict)
 
+
+def test_metrics_invalid_group_by():
+    """Verify error on invalid group_by column."""
+    req = MetricsRequest(metric="Revenue", aggregation="sum", group_by="NonExistent")
+    with pytest.raises(ValueError, match="Invalid group_by column 'NonExistent'"):
+        execute_metrics_request(req)
+
+
+def test_trends_with_filter_and_grouping():
+    """Compute monthly trend filtered by Region and grouped by Category."""
+    req = TrendsRequest(
+        metric="Revenue",
+        date_column="Date",
+        granularity="month",
+        group_by="Category",
+        filters={"Region": "North"},
+    )
+    res = execute_trends_request(req)
+    assert len(res) > 0
+    assert "Category" in res[0]
+    assert "total_revenue" in res[0]
+    assert "period" in res[0]
+
+
+def test_charts_rendering_scatter_and_line():
+    """Render scatter and line charts from pre-computed tabular data."""
+    data = [
+        {"period": "2024-01-01", "total_revenue": 1000.0},
+        {"period": "2024-02-01", "total_revenue": 1500.0},
+    ]
+    line_req = ChartRequest(chart_type="line", x="period", y="total_revenue", title="Line Chart")
+    scatter_req = ChartRequest(chart_type="scatter", x="period", y="total_revenue", title="Scatter Chart")
+
+    line_fig = render_chart_from_data(data, line_req)
+    scatter_fig = render_chart_from_data(data, scatter_req)
+
+    assert isinstance(line_fig, dict)
+    assert isinstance(scatter_fig, dict)
+
+
+def test_charts_missing_preceding_data():
+    """Verify charts_tool_node returns ToolResult(success=False) when no tabular data exists."""
+    plan = AnalysisPlan(
+        intent=Intent.CHART,
+        rationale="Standalone chart without data",
+        steps=[
+            PlanStep(
+                step_number=1,
+                tool=ToolName.CHARTS,
+                description="Visualize missing data",
+            )
+        ],
+        selected_tools=[ToolName.CHARTS],
+    )
+    state: AgentState = {
+        "query": "Show chart",
+        "plan": plan,
+        "current_step": 0,
+        "tool_results": [],
+    }
+
+    out = charts_tool_node(state)
+    results = out.get("tool_results", [])
+    assert len(results) == 1
+    assert results[0].success is False
+    assert "No valid preceding tabular data" in results[0].error
+
+
+def test_tool_node_malformed_plan_step():
+    """Verify metrics_tool_node returns controlled ToolResult(success=False) on invalid params."""
+    plan = AnalysisPlan(
+        intent=Intent.METRICS,
+        rationale="Invalid metric calculation",
+        steps=[
+            PlanStep(
+                step_number=1,
+                tool=ToolName.METRICS,
+                description="Invalid metric",
+                parameters={"metric": "InvalidColumnName", "aggregation": "sum"},
+            )
+        ],
+        selected_tools=[ToolName.METRICS],
+    )
+    state: AgentState = {
+        "query": "Calculate invalid metric",
+        "plan": plan,
+        "current_step": 0,
+        "tool_results": [],
+    }
+
+    out = metrics_tool_node(state)
+    results = out.get("tool_results", [])
+    assert len(results) == 1
+    assert results[0].success is False
+    assert "Invalid metric" in results[0].error
+

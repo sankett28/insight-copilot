@@ -16,16 +16,12 @@ import logging
 
 from agent.state import AgentState
 from models.schemas import ToolName, ToolResult
+from utils.capability_registry import get_node_map
 
 logger = logging.getLogger(__name__)
 
-# Map from ToolName enum to the LangGraph node name string.
-_TOOL_NODE_MAP: dict[ToolName, str] = {
-    ToolName.DATA_QUERY: "data_query",
-    ToolName.METRICS: "metrics",
-    ToolName.TRENDS: "trends",
-    ToolName.CHARTS: "charts",
-}
+# Map from ToolName enum to the LangGraph node name string, generated from capability registry.
+_TOOL_NODE_MAP: dict[ToolName, str] = get_node_map()
 
 SYNTHESIZER_NODE = "synthesizer"
 ERROR_NODE = "error_handler"

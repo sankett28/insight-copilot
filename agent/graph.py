@@ -34,6 +34,7 @@ from agent.state import AgentState
 from agent.synthesizer import build_synthesizer_node
 from llm.base import BaseLLM
 from tools.charts import charts_tool_node
+from tools.data_profile import data_profile_tool_node
 from tools.data_query import data_query_tool_node
 from tools.metrics import metrics_tool_node
 from tools.trends import trends_tool_node
@@ -45,6 +46,7 @@ NODE_PLANNER = "planner"
 NODE_ROUTER = "router"
 NODE_STEP_ADVANCE = "step_advance"
 NODE_DATA_QUERY = "data_query"
+NODE_DATA_PROFILE = "data_profile"
 NODE_METRICS = "metrics"
 NODE_TRENDS = "trends"
 NODE_CHARTS = "charts"
@@ -54,6 +56,7 @@ NODE_ERROR = ERROR_NODE
 # All tool nodes the router can dispatch to.
 _TOOL_NODES: list[str] = [
     NODE_DATA_QUERY,
+    NODE_DATA_PROFILE,
     NODE_METRICS,
     NODE_TRENDS,
     NODE_CHARTS,
@@ -79,6 +82,7 @@ def build_graph(llm: BaseLLM) -> StateGraph:
     graph.add_node(NODE_ROUTER, _passthrough_node)  # routing logic lives in the edge
     graph.add_node(NODE_STEP_ADVANCE, advance_step)
     graph.add_node(NODE_DATA_QUERY, data_query_tool_node)
+    graph.add_node(NODE_DATA_PROFILE, data_profile_tool_node)
     graph.add_node(NODE_METRICS, metrics_tool_node)
     graph.add_node(NODE_TRENDS, trends_tool_node)
     graph.add_node(NODE_CHARTS, charts_tool_node)
@@ -109,6 +113,7 @@ def build_graph(llm: BaseLLM) -> StateGraph:
         router_node,
         {
             NODE_DATA_QUERY: NODE_DATA_QUERY,
+            NODE_DATA_PROFILE: NODE_DATA_PROFILE,
             NODE_METRICS: NODE_METRICS,
             NODE_TRENDS: NODE_TRENDS,
             NODE_CHARTS: NODE_CHARTS,

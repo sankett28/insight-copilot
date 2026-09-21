@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from llm.base import BaseLLM, LLMResponse
 
 # Default model; can be overridden via constructor or GEMINI_MODEL env var.
-_DEFAULT_MODEL = "gemini-2.0-flash"
+_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiLLM(BaseLLM):
@@ -72,19 +72,29 @@ class GeminiLLM(BaseLLM):
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        """Send a list of messages to Gemini and return the plain-text reply."""
+        """Send a list of messages to Gemini using ChatSession and return the plain-text reply."""
         generation_config: dict[str, Any] = {"temperature": temperature}
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
 
-        # Gemini SDK expects a flat prompt string *or* a history list.
-        # We convert the OpenAI-style message list to a single prompt here.
-        # TODO: Migrate to genai.ChatSession for proper multi-turn when the
-        #       conversation history grows large.
-        prompt = _messages_to_prompt(messages)
-        response = self._client.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(**generation_config),
+        gen_config = genai.types.GenerationConfig(**generation_config)
+
+        if not messages:
+            return LLMResponse(content="", raw=None)
+
+        # Convert OpenAI-style messages into history + latest user prompt
+        history_contents: list[dict[str, Any]] = []
+        last_message = messages[-1]
+
+        for msg in messages[:-1]:
+            role = "user" if msg.get("role") in ("user", "system") else "model"
+            content = msg.get("content", "")
+            history_contents.append({"role": role, "parts": [content]})
+
+        chat_session = self._client.start_chat(history=history_contents)
+        response = chat_session.send_message(
+            last_message.get("content", ""),
+            generation_config=gen_config,
         )
         return LLMResponse(content=response.text, raw=response)
 

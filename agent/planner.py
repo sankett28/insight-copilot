@@ -15,6 +15,7 @@ import logging
 from agent.state import AgentState
 from llm.base import BaseLLM
 from models.schemas import AnalysisPlan, Intent, Message, Role, ToolName
+from utils.capability_registry import get_planner_context
 from utils.data_loader import get_schema_description
 from utils.prompts import PLANNER_SYSTEM_PROMPT
 
@@ -88,7 +89,8 @@ def _build_planner_messages(
 ) -> list[dict[str, str]]:
     """Assemble the message list sent to the LLM for planning."""
     schema_summary = get_schema_description().to_prompt_summary()
-    system_content = f"{PLANNER_SYSTEM_PROMPT}\n\n{schema_summary}"
+    capabilities_summary = get_planner_context()
+    system_content = f"{PLANNER_SYSTEM_PROMPT}\n\n{schema_summary}\n\n{capabilities_summary}"
 
     msgs: list[dict[str, str]] = [
         {"role": "system", "content": system_content},

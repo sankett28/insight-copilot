@@ -306,57 +306,35 @@ edge cases, and prepare the project for submission and demonstration.
 
 ---
 
+---
+
 ## Current Status
 
 | Phase | Description | Status |
 |---|---|---|
 | 0 | Skeleton and contracts | ✅ Complete |
-| 1 | Data layer and tool implementation | 🔲 Not started |
-| 2 | LLM integration and planner validation | 🔲 Not started |
-| 3 | Streamlit UI | 🔲 Not started |
+| 1 | Data layer, Parquet runtime, typed contracts & tools | ✅ Complete |
+| 2 | LLM integration and planner validation | 🔄 In Progress |
+| 3 | Streamlit UI & Plan Trace | ✅ Complete |
 | 4 | Evaluation and polish | 🔲 Not started |
 
 ---
 
 ## Completed
 
-- Phase 0: all skeleton tasks, 27 tests passing, documentation written
+- Phase 0: All skeleton tasks, contracts, documentation, and test harness.
+- Phase 1: Canonical dataset conversion (`Sales_Dataset_2024.xlsx` -> `sales_dataset.parquet`), dataset validation, Pydantic tool request contracts (`MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`), clean per-turn state isolation (`create_initial_state`), router dependency validation (`depends_on`), safe DuckDB tools (`metrics`, `trends`, `data_query`, `charts`), Streamlit chat & visible plan trace, and expanded 26-test deterministic suite.
 
 ---
 
 ## In Progress
 
-*(nothing currently in progress)*
+- Phase 2: Gemini planner structured output parameter parsing & multi-turn validation.
 
 ---
 
 ## Next
 
-**Immediate next task**: Begin Phase 1 — Data Layer.
+1. End-to-end evaluation with live Gemini key across 20 evaluation queries.
+2. Final polish and deployment verification.
 
-Priority order:
-1. `utils/data_loader.py` — implement `get_connection()` and `load_dataset()`
-2. `tools/data_query.py` — implement `run_data_query()` and wire tool node
-3. Add `PlanStep.parameters` to the schema (prerequisite for all other tools)
-4. `tools/metrics.py` — implement `compute_metric()` and wire tool node
-5. `tools/trends.py` — implement `compute_trend()` and wire tool node
-6. `tools/charts.py` — implement `render_chart()` and wire tool node
-7. Integration tests for data layer and tools
-
----
-
-## Blocked
-
-*(nothing currently blocked)*
-
----
-
-## Known Issues
-
-| Issue | Severity | Phase to address |
-|---|---|---|
-| `GeminiLLM.chat()` flattens message history to a single string rather than using `ChatSession` | Medium — multi-turn context is partially lost | Phase 2 |
-| `PlanStep.depends_on` field is defined in the schema but not enforced by the router | Low — all current plans are sequential | Phase 1 or 2 |
-| Tool nodes do not yet extract parameters from `PlanStep` — they return stubs | Critical — tools cannot compute without parameters | Phase 1 |
-| Streamlit UI is not connected to the agent | Critical — app is not functional end-to-end | Phase 3 |
-| History truncation is hard-coded at 10 messages | Low — sufficient for the assignment scope | Phase 4 if needed |

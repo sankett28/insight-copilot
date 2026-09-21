@@ -5,83 +5,168 @@ Metrics tool — computes aggregated numeric metrics (sums, averages, counts,
 rankings, percentiles) from the dataset using DuckDB.
 
 Design contract:
-  - All calculations are performed by DuckDB, not by the LLM.
-  - The LLM receives only the *result* via the synthesizer.
-  - Metric definitions are parameterised; no hard-coded business logic.
-
-Current status: PLACEHOLDER — returns a stub result.
+  - All calculations are performed by DuckDB from validated parameters.
+  - The LLM never writes SQL and never calculates numbers.
+  - Metric inputs are strictly validated against Pydantic MetricsRequest.
 """
 
 from __future__ import annotations
 
 import logging
-from enum import Enum
+from typing import Any
 
 from agent.state import AgentState
-from models.schemas import ToolName, ToolResult
+from models.schemas import (
+    CANONICAL_COLUMNS,
+    CATEGORICAL_COLUMNS,
+    NUMERIC_COLUMNS,
+    MetricsRequest,
+    ToolName,
+    ToolResult,
+)
+from utils.data_loader import get_connection
 
 logger = logging.getLogger(__name__)
-
-
-class AggregationType(str, Enum):
-    """Supported aggregation operations."""
-
-    SUM = "sum"
-    AVG = "avg"
-    COUNT = "count"
-    MIN = "min"
-    MAX = "max"
-    MEDIAN = "median"
 
 
 def metrics_tool_node(state: AgentState) -> dict:
     """LangGraph node: compute aggregated metrics from the dataset.
 
     Reads:
-        state["plan"]         — to extract metric parameters
-        state["current_step"] — to identify the correct plan step
+        state["plan"]         — to extract metric parameters from current step
+        state["current_step"] — index of the active plan step
 
     Writes:
         tool_results — appends a ToolResult (success or error)
     """
-    step = state.get("current_step", 0)
+    step_idx = state.get("current_step", 0)
+    plan = state.get("plan")
 
-    logger.info("metrics_tool_node: executing step %d", step)
+    if not plan or step_idx >= len(plan.steps):
+        err_msg = f"Metrics tool failed: plan missing or step index {step_idx} out of range."
+        return {
+            "tool_results": [
+                ToolResult(
+                    tool=ToolName.METRICS,
+                    step_number=step_idx + 1,
+                    success=False,
+                    data=None,
+                    error=err_msg,
+                )
+            ]
+        }
 
-    # TODO: Extract metric parameters from plan.steps[step] and run DuckDB aggregation.
-    result = ToolResult(
-        tool=ToolName.METRICS,
-        step_number=step + 1,
-        success=False,
-        data=None,
-        error="metrics tool not yet implemented — placeholder stub.",
-    )
+    plan_step = plan.steps[step_idx]
+    raw_params = plan_step.parameters or {}
 
-    return {"tool_results": [result]}
+    existing_results = list(state.get("tool_results", []))
+
+    try:
+        req = MetricsRequest.model_validate(raw_params)
+        data = execute_metrics_request(req)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.METRICS,
+                step_number=plan_step.step_number,
+                success=True,
+                data=data,
+                error=None,
+            )
+        )
+        return {"tool_results": existing_results}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Metrics tool execution error: %s", exc)
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.METRICS,
+                step_number=plan_step.step_number,
+                success=False,
+                data=None,
+                error=f"Metrics calculation error: {exc}",
+            )
+        )
+        return {"tool_results": existing_results}
 
 
-def compute_metric(
-    table: str,
-    metric_column: str,
-    aggregation: AggregationType,
-    group_by: list[str] | None = None,
-    filters: dict[str, object] | None = None,
-    top_n: int | None = None,
-) -> list[dict]:
-    """Compute an aggregated metric via DuckDB.
 
-    Args:
-        table:         Source table/view name.
-        metric_column: Column to aggregate.
-        aggregation:   Aggregation function to apply.
-        group_by:      Columns to group by; None means no grouping.
-        filters:       Column-to-value equality filters applied before aggregation.
-        top_n:         If set, return only the top N rows ordered by the metric descending.
+def execute_metrics_request(req: MetricsRequest) -> list[dict[str, Any]]:
+    """Generate safe SQL for a MetricsRequest and execute against DuckDB."""
+    conn = get_connection()
 
-    Returns:
-        List of row dicts with group keys and the aggregated value.
+    # Determine canonical metric column name
+    metric_col = req.metric
+    agg_op = req.aggregation.lower()
+    if agg_op in ("average", "avg"):
+        sql_agg = "AVG"
+    elif agg_op == "sum":
+        sql_agg = "SUM"
+    elif agg_op == "count":
+        sql_agg = "COUNT"
+    elif agg_op == "min":
+        sql_agg = "MIN"
+    elif agg_op == "max":
+        sql_agg = "MAX"
+    elif agg_op == "median":
+        sql_agg = "MEDIAN"
+    else:
+        sql_agg = "SUM"
 
-    Raises:
-        NotImplementedError: Until the data layer is ready.
-    """
-    raise NotImplementedError("metrics tool not yet implemented.")
+    # Handle grouping
+    group_cols: list[str] = []
+    if req.group_by:
+        if isinstance(req.group_by, str):
+            group_cols = [req.group_by]
+        else:
+            group_cols = list(req.group_by)
+
+    # Validate group columns against canonical schema
+    validated_groups = []
+    for g in group_cols:
+        matched = False
+        for c in CANONICAL_COLUMNS:
+            if g.lower() == c.lower():
+                validated_groups.append(c)
+                matched = True
+                break
+        if not matched:
+            raise ValueError(f"Invalid group_by column '{g}'. Must be one of {CANONICAL_COLUMNS}.")
+
+    # Build WHERE filters safely
+    where_clauses: list[str] = ["1=1"]
+    if req.filters:
+        for col, val in req.filters.items():
+            matched_col = None
+            for c in CANONICAL_COLUMNS:
+                if col.lower() == c.lower():
+                    matched_col = c
+                    break
+            if matched_col:
+                if isinstance(val, str):
+                    clean_val = val.replace("'", "''")
+                    # Handle case-insensitive matching for string values if needed
+                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+                else:
+                    where_clauses.append(f"{matched_col} = {val}")
+
+    where_str = " AND ".join(where_clauses)
+    metric_alias = f"{agg_op}_{metric_col}".lower()
+
+    if validated_groups:
+        group_str = ", ".join(validated_groups)
+        sql = (
+            f"SELECT {group_str}, {sql_agg}({metric_col}) AS {metric_alias} "
+            f"FROM dataset WHERE {where_str} "
+            f"GROUP BY {group_str} "
+            f"ORDER BY {metric_alias} {req.sort.upper()} "
+            f"LIMIT {req.limit or 20}"
+        )
+    else:
+        sql = (
+            f"SELECT {sql_agg}({metric_col}) AS {metric_alias} "
+            f"FROM dataset WHERE {where_str}"
+        )
+
+    logger.info("Executing Metrics SQL: %s", sql)
+    df = conn.execute(sql).fetchdf()
+    return df.to_dict(orient="records")
+

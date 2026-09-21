@@ -6,11 +6,9 @@ every node in the LangGraph StateGraph.
 
 Design decisions:
 - Uses TypedDict (required by LangGraph) rather than Pydantic BaseModel.
-- Every field is Optional with a documented default so nodes can add data
-  incrementally without having to initialise the full state up-front.
-- Fields use LangGraph's `Annotated` + `operator.add` reducer only where
-  *accumulation* is semantically correct (messages, tool_results, errors).
-  All other fields are plain last-write-wins.
+- Explicitly separates persistent conversation state (messages) from
+  per-turn execution state (query, plan, selected_tools, current_step,
+  tool_results, chart_artifacts, final_answer, errors).
 """
 
 from __future__ import annotations
@@ -20,86 +18,79 @@ from typing import Annotated, Any
 
 from typing_extensions import TypedDict
 
-from models.schemas import AnalysisPlan, Message, ToolName, ToolResult
+from models.schemas import AnalysisPlan, Message, Role, ToolName, ToolResult
 
 
 class AgentState(TypedDict, total=False):
-    """Shared state for the Insight Copilot LangGraph graph.
-
-    total=False means every key is Optional at the TypedDict level,
-    allowing nodes to write only the fields they own.
-    """
+    """Shared state for the Insight Copilot LangGraph graph."""
 
     # ------------------------------------------------------------------
-    # Conversation history
+    # Persistent conversation state
     # ------------------------------------------------------------------
-    messages: Annotated[list[Message], operator.add]
-    """Full conversation history, accumulated across turns.
-
-    Uses the `operator.add` reducer so each node can *append* messages
-    without overwriting earlier ones.
-    """
+    messages: list[Message]
+    """Full conversation history, accumulated across turns."""
 
     # ------------------------------------------------------------------
-    # Current turn
+    # Per-turn execution state
     # ------------------------------------------------------------------
     query: str
     """The raw natural-language question submitted by the user this turn."""
 
-    # ------------------------------------------------------------------
-    # Planning outputs
-    # ------------------------------------------------------------------
     intent: str
-    """Classified intent string (mirrors Intent enum value), set by the planner."""
+    """Classified intent string, set by the planner."""
 
     plan: AnalysisPlan | None
-    """Structured execution plan produced by the planner node.
-    None until the planner has run.
-    """
+    """Structured execution plan produced by the planner node."""
 
-    # ------------------------------------------------------------------
-    # Routing
-    # ------------------------------------------------------------------
     selected_tools: list[ToolName]
     """Ordered list of tools the router will invoke, derived from plan.steps."""
 
     current_step: int
-    """Index into selected_tools indicating the next tool to execute.
-    Starts at 0; the router increments it after dispatching each tool.
-    """
+    """Index into selected_tools indicating the next tool step to execute (starts at 0)."""
 
-    # ------------------------------------------------------------------
-    # Tool execution
-    # ------------------------------------------------------------------
-    tool_results: Annotated[list[ToolResult], operator.add]
-    """Accumulated results from every tool invocation this turn.
+    tool_results: list[ToolResult]
+    """Accumulated results from tool invocations during this turn."""
 
-    Uses operator.add so results from sequential tool calls are collected
-    without overwriting earlier results.
-    """
-
-    # ------------------------------------------------------------------
-    # Artifacts
-    # ------------------------------------------------------------------
     chart_artifacts: list[dict[str, Any]]
-    """List of Plotly figure dicts (fig.to_dict()) produced by the charts tool.
-    Stored separately so the UI can render them independently of the text answer.
-    """
+    """List of Plotly figure dicts (fig.to_dict()) produced by the charts tool this turn."""
 
-    # ------------------------------------------------------------------
-    # Final output
-    # ------------------------------------------------------------------
     final_answer: str | None
-    """Analyst-style natural-language answer produced by the synthesizer.
-    None until the synthesizer has run.
-    """
+    """Analyst-style natural-language answer produced by the synthesizer."""
 
-    # ------------------------------------------------------------------
-    # Error tracking
-    # ------------------------------------------------------------------
-    errors: Annotated[list[str], operator.add]
-    """Accumulated error messages from any node or tool that encountered a problem.
+    errors: list[str]
+    """Accumulated error messages from any node or tool during this turn."""
 
-    Uses operator.add so multiple errors are collected rather than overwritten.
-    An empty list means no errors occurred.
+
+def create_initial_state(
+    query: str,
+    history: list[Message] | None = None,
+) -> AgentState:
+    """Construct a clean AgentState for a new user query turn.
+
+    Guarantees that previous-turn execution state (tool_results, chart_artifacts,
+    current_step, errors, plan) does not leak into the new turn, while preserving
+    the persistent conversation history.
+
+    Args:
+        query:   The new natural-language query from the user.
+        history: Previous conversation messages (if any).
+
+    Returns:
+        A fresh AgentState dict with clean per-turn fields.
     """
+    messages: list[Message] = list(history) if history else []
+    messages.append(Message(role=Role.USER, content=query))
+
+    return AgentState(
+        messages=messages,
+        query=query,
+        intent="",
+        plan=None,
+        selected_tools=[],
+        current_step=0,
+        tool_results=[],
+        chart_artifacts=[],
+        final_answer=None,
+        errors=[],
+    )
+

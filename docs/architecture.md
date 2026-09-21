@@ -236,7 +236,7 @@ registry.to_node_map() -> dict[str, str]
 
 | Capability | Description | Status |
 |---|---|---|
-| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | 🔲 Phase 2 |
+| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Phase 2 — Implemented |
 | `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Phase 1 — Implemented |
 
 ### CORE ANALYSIS
@@ -245,10 +245,10 @@ registry.to_node_map() -> dict[str, str]
 |---|---|---|
 | `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Phase 1 — Implemented |
 | `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Phase 1 — Implemented |
-| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | 🔲 Phase 2 |
-| `contribution` | Percentage and absolute contribution of segments to a total | 🔲 Phase 2 |
-| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | 🔲 Phase 2 |
-| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | 🔲 Phase 2 |
+| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | ✅ Phase 2 — Implemented |
+| `contribution` | Percentage and absolute contribution of segments to a total | ✅ Phase 2 — Implemented |
+| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | ✅ Phase 2 — Implemented |
+| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | ✅ Phase 2 — Implemented |
 
 ### ADVANCED ANALYSIS
 

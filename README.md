@@ -108,24 +108,19 @@ are reported as observable evidence, not silently corrected.
 
 ## Analytical Capabilities
 
-### Currently Implemented (Phase 1 — Complete)
+### Currently Implemented (Phase 1 & Phase 2 — Complete)
 
 | Capability | What it does |
 |---|---|
+| `data_profile` | Dataset overview: row count, column types, missing values, cardinality, date range, numeric ranges, data quality warnings |
 | `data_query` | Parameterised `SELECT` with column selection, equality filters, sorting, and limit (max 100 rows) |
 | `metrics` | DuckDB `GROUP BY` aggregations: `SUM`, `AVG`, `COUNT`, `MIN`, `MAX`, `MEDIAN` |
 | `trends` | `DATE_TRUNC`-based temporal aggregation at `day`, `week`, `month`, `quarter`, `year` granularity |
+| `compare` | Side-by-side entity or period comparison with absolute and percentage deltas |
+| `contribution` | Absolute and percentage contribution of segments to a total (`SUM() OVER ()`) |
+| `profitability` | Revenue, cost, profit, and derived profit margin (`Profit / Revenue * 100`) |
+| `variance` | Period-over-period growth and variance via `LAG()` window functions |
 | `charts` | Plotly `bar`, `line`, `scatter` generation from prior `ToolResult` data — never queries DuckDB directly |
-
-### Planned — Phase 2
-
-| Capability | What it answers |
-|---|---|
-| `data_profile` | "What does this dataset look like?" — row count, column types, missing values, cardinality, date range, numeric ranges, data quality warnings |
-| `compare` | "North vs South", "Q1 vs Q2", "Category A vs Category B" — absolute and percentage delta |
-| `contribution` | "Which region drives the most revenue?" — absolute and relative percentage share |
-| `profitability` | Revenue, cost, profit, and derived profit margin (`Profit / Revenue`) — does not conflate high revenue with high profitability |
-| `variance` | Month-over-month, quarter-over-quarter, H1 vs H2 change — `LAG()` window function |
 
 ### Planned — Phase 3
 

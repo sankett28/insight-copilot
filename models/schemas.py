@@ -98,6 +98,11 @@ class ToolName(str, Enum):
     PROFITABILITY = "profitability"
     VARIANCE = "variance"
 
+    # Phase 3 — advanced statistical capabilities
+    ANOMALY_DETECTION = "anomaly_detection"
+    CORRELATION = "correlation"
+    SEGMENTATION = "segmentation"
+
 
 # ---------------------------------------------------------------------------
 # Typed Tool Request Contracts
@@ -388,6 +393,143 @@ class VarianceRequest(BaseModel):
             if v.lower() == valid.lower():
                 return valid
         raise ValueError(f"Invalid group_by dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+
+class AnomalyRequest(BaseModel):
+    """Structured parameter contract for the anomaly_detection capability."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column (Units_Sold, Unit_Price, Revenue, Cost, Profit).",
+    )
+    method: Literal["iqr", "zscore"] = Field(
+        default="iqr",
+        description="Statistical outlier detection method: 'iqr' (Interquartile Range) or 'zscore'.",
+    )
+    threshold: float = Field(
+        default=1.5,
+        ge=0.5,
+        le=5.0,
+        description="Multiplier for IQR (default 1.5) or Z-score cut-off threshold (default 2.5 or 3.0).",
+    )
+    group_by: str | None = Field(
+        default=None,
+        description="Optional categorical dimension to detect anomalies within groups.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional equality filters.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric_column(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("group_by")
+    @classmethod
+    def validate_group_by(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid group_by dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+
+class CorrelationRequest(BaseModel):
+    """Structured parameter contract for the correlation capability."""
+
+    field_a: str = Field(
+        ...,
+        description="First target numeric column.",
+    )
+    field_b: str = Field(
+        ...,
+        description="Second target numeric column.",
+    )
+    group_by: str | None = Field(
+        default=None,
+        description="Optional dimension to calculate correlation across subsets.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional equality filters.",
+    )
+
+    @field_validator("field_a")
+    @classmethod
+    def validate_field_a(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid field_a '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("field_b")
+    @classmethod
+    def validate_field_b(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid field_b '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+
+class SegmentationRequest(BaseModel):
+    """Structured parameter contract for the segmentation capability."""
+
+    metric: str = Field(
+        ...,
+        description="Target numeric column.",
+    )
+    dimension_primary: str = Field(
+        ...,
+        description="Primary categorical axis (e.g. 'Region', 'Category', 'Salesperson').",
+    )
+    dimension_secondary: str = Field(
+        ...,
+        description="Secondary categorical axis (e.g. 'Category', 'Product').",
+    )
+    aggregation: Literal["sum", "average", "avg", "count", "min", "max"] = Field(
+        default="sum",
+        description="Aggregation function.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional equality filters.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description="Maximum combinations returned.",
+    )
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric(cls, v: str) -> str:
+        for valid in NUMERIC_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid metric '{v}'. Must be one of {NUMERIC_COLUMNS}.")
+
+    @field_validator("dimension_primary")
+    @classmethod
+    def validate_dim_primary(cls, v: str) -> str:
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid dimension_primary '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+
+    @field_validator("dimension_secondary")
+    @classmethod
+    def validate_dim_secondary(cls, v: str) -> str:
+        for valid in CATEGORICAL_COLUMNS:
+            if v.lower() == valid.lower():
+                return valid
+        raise ValueError(f"Invalid dimension_secondary '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
 
 
 # ---------------------------------------------------------------------------

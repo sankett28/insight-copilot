@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import logging
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from agent.state import AgentState
 from llm.base import BaseLLM
 from models.schemas import AnalysisPlan, Intent, Message, Role, ToolName

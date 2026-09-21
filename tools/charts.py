@@ -94,15 +94,22 @@ def charts_tool_node(state: AgentState) -> dict:
         df_sample = pd.DataFrame(rows)
         cols = df_sample.columns.tolist()
 
-        x_col = raw_params.get("x")
-        y_col = raw_params.get("y")
+        # Smart column resolution: match requested x and y against actual DataFrame columns
+        x_req = str(raw_params.get("x", "")).lower()
+        y_req = str(raw_params.get("y", "")).lower()
 
-        if not x_col and len(cols) >= 1:
-            x_col = cols[0]
-        if not y_col and len(cols) >= 2:
-            y_col = cols[1]
-        elif not y_col and len(cols) == 1:
-            y_col = cols[0]
+        matched_x = None
+        matched_y = None
+
+        for col in cols:
+            col_lower = col.lower()
+            if x_req and (x_req == col_lower or x_req in col_lower or col_lower in x_req):
+                matched_x = col
+            if y_req and (y_req == col_lower or y_req in col_lower or col_lower in y_req):
+                matched_y = col
+
+        x_col = matched_x or (cols[0] if len(cols) >= 1 else None)
+        y_col = matched_y or (cols[1] if len(cols) >= 2 else cols[0] if len(cols) >= 1 else None)
 
         chart_type = raw_params.get("chart_type", "bar")
         title = raw_params.get("title", f"{y_col} by {x_col}")

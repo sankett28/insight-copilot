@@ -8,6 +8,7 @@ Requires GEMINI_API_KEY environment variable.
 """
 
 import os
+import time
 import pytest
 from dotenv import load_dotenv
 
@@ -49,8 +50,20 @@ def live_llm():
 @pytest.mark.parametrize("query,expected_intent", TEST_QUERIES)
 def test_live_planner_query_intent_and_parameters(live_llm, query, expected_intent):
     """Verify Gemini returns a valid AnalysisPlan with correct intent and structured parameters."""
+    # Free tier limit is 5 requests per minute; pause 12s between calls to prevent 429
+    time.sleep(12)
     messages = _build_planner_messages(query, history=[])
-    plan: AnalysisPlan = live_llm.structured_chat(messages, AnalysisPlan)
+    
+    # Retry on 429 rate limit
+    for attempt in range(3):
+        try:
+            plan: AnalysisPlan = live_llm.structured_chat(messages, AnalysisPlan)
+            break
+        except Exception as exc:
+            if "429" in str(exc) or "ResourceExhausted" in str(type(exc).__name__):
+                time.sleep(25)
+                continue
+            raise
 
     assert isinstance(plan, AnalysisPlan)
     assert len(plan.rationale) > 0

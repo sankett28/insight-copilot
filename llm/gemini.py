@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from llm.base import BaseLLM, LLMResponse
 
 # Default model; can be overridden via constructor or GEMINI_MODEL env var.
-_DEFAULT_MODEL = "gemini-2.5-flash"
+_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 
 class GeminiLLM(BaseLLM):

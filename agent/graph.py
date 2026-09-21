@@ -34,10 +34,14 @@ from agent.state import AgentState
 from agent.synthesizer import build_synthesizer_node
 from llm.base import BaseLLM
 from tools.charts import charts_tool_node
+from tools.compare import compare_tool_node
+from tools.contribution import contribution_tool_node
 from tools.data_profile import data_profile_tool_node
 from tools.data_query import data_query_tool_node
 from tools.metrics import metrics_tool_node
+from tools.profitability import profitability_tool_node
 from tools.trends import trends_tool_node
+from tools.variance import variance_tool_node
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,10 @@ NODE_DATA_QUERY = "data_query"
 NODE_DATA_PROFILE = "data_profile"
 NODE_METRICS = "metrics"
 NODE_TRENDS = "trends"
+NODE_COMPARE = "compare"
+NODE_CONTRIBUTION = "contribution"
+NODE_PROFITABILITY = "profitability"
+NODE_VARIANCE = "variance"
 NODE_CHARTS = "charts"
 NODE_SYNTHESIZER = SYNTHESIZER_NODE
 NODE_ERROR = ERROR_NODE
@@ -59,6 +67,10 @@ _TOOL_NODES: list[str] = [
     NODE_DATA_PROFILE,
     NODE_METRICS,
     NODE_TRENDS,
+    NODE_COMPARE,
+    NODE_CONTRIBUTION,
+    NODE_PROFITABILITY,
+    NODE_VARIANCE,
     NODE_CHARTS,
 ]
 
@@ -85,6 +97,10 @@ def build_graph(llm: BaseLLM) -> StateGraph:
     graph.add_node(NODE_DATA_PROFILE, data_profile_tool_node)
     graph.add_node(NODE_METRICS, metrics_tool_node)
     graph.add_node(NODE_TRENDS, trends_tool_node)
+    graph.add_node(NODE_COMPARE, compare_tool_node)
+    graph.add_node(NODE_CONTRIBUTION, contribution_tool_node)
+    graph.add_node(NODE_PROFITABILITY, profitability_tool_node)
+    graph.add_node(NODE_VARIANCE, variance_tool_node)
     graph.add_node(NODE_CHARTS, charts_tool_node)
     graph.add_node(NODE_SYNTHESIZER, build_synthesizer_node(llm))
     graph.add_node(NODE_ERROR, _error_handler_node)
@@ -116,6 +132,10 @@ def build_graph(llm: BaseLLM) -> StateGraph:
             NODE_DATA_PROFILE: NODE_DATA_PROFILE,
             NODE_METRICS: NODE_METRICS,
             NODE_TRENDS: NODE_TRENDS,
+            NODE_COMPARE: NODE_COMPARE,
+            NODE_CONTRIBUTION: NODE_CONTRIBUTION,
+            NODE_PROFITABILITY: NODE_PROFITABILITY,
+            NODE_VARIANCE: NODE_VARIANCE,
             NODE_CHARTS: NODE_CHARTS,
             SYNTHESIZER_NODE: NODE_SYNTHESIZER,
             ERROR_NODE: NODE_ERROR,

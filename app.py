@@ -113,6 +113,7 @@ with st.sidebar:
     st.subheader("💡 Quick Starters")
     starter_queries = [
         "What is the total revenue by region?",
+        "Clean region typos and show total revenue by region",
         "Compare North and South profit margin",
         "Show monthly profit trend with a bar chart",
         "Which product contributes most to total profit?",
@@ -124,6 +125,13 @@ with st.sidebar:
             st.session_state["pending_query"] = sq
 
     st.divider()
+
+    # Reset Cleaned Data View Button
+    if st.button("🔄 Reset Active Dataset to Raw", use_container_width=True):
+        from utils.data_loader import reset_to_raw_dataset
+        reset_to_raw_dataset()
+        st.toast("Active dataset view reset to raw data.", icon="🔄")
+        st.rerun()
 
     # Clear Chat Button
     if st.button("🗑️ Clear Conversation", use_container_width=True):
@@ -220,7 +228,27 @@ def _render_tool_result_ui(tr: Any) -> None:
                 st.success("No anomalies detected outside threshold boundaries.")
             return
 
-        # 4. Standard rows table
+        # 4. Data Clean rendering
+        if "cluster_mappings" in data and "distinct_before" in data:
+            st.success(data.get("message", "Data cleaning completed successfully."))
+            c1, c2 = st.columns(2)
+            for col in data.get("columns_cleaned", []):
+                b_cnt = data.get("distinct_before", {}).get(col, 0)
+                a_cnt = data.get("distinct_after", {}).get(col, 0)
+                nulls_cnt = data.get("nulls_replaced", {}).get(col, 0)
+                diff = b_cnt - a_cnt
+                c1.metric(f"'{col}' Distinct Values", f"{b_cnt} → {a_cnt}", delta=f"-{diff} merged" if diff > 0 else None)
+                c2.metric(f"'{col}' Nulls Filled", f"{nulls_cnt} rows")
+
+            mappings = data.get("cluster_mappings", {})
+            for col, cmap in mappings.items():
+                if cmap:
+                    st.markdown(f"🔄 **Transformation Mappings applied to `{col}`:**")
+                    map_rows = [{"Raw Value": k, "Normalized To": v} for k, v in cmap.items()]
+                    st.dataframe(map_rows, use_container_width=True)
+            return
+
+        # 5. Standard rows table
         if "rows" in data and isinstance(data["rows"], list):
             st.dataframe(data["rows"], use_container_width=True)
             with st.expander("Summary Statistics", expanded=False):
@@ -233,6 +261,7 @@ def _render_tool_result_ui(tr: Any) -> None:
         return
 
     st.write(data)
+
 
 
 # ---------------------------------------------------------------------------

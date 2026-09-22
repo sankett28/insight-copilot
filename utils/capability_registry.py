@@ -23,6 +23,7 @@ from models.schemas import (
     CompareRequest,
     ContributionRequest,
     CorrelationRequest,
+    DataCleanRequest,
     DataProfileRequest,
     DataQueryRequest,
     MetricsRequest,
@@ -73,6 +74,18 @@ REGISTRY: dict[str, Capability] = {
         consumes_previous_results=False,
         node_name="data_profile",
     ),
+    ToolName.DATA_CLEAN.value: Capability(
+        name=ToolName.DATA_CLEAN.value,
+        category="DATA_ACCESS",
+        description="Interactively standardize casing, fix typos using fuzzy clustering, and fill null values in dataset dimensions.",
+        input_schema=DataCleanRequest,
+        output_description="Audit dictionary summarizing before/after distinct counts, typo cluster mappings, and filled nulls.",
+        deterministic=True,
+        independent=True,
+        consumes_previous_results=False,
+        node_name="data_clean",
+    ),
+
     ToolName.METRICS.value: Capability(
         name=ToolName.METRICS.value,
         category="CORE_ANALYSIS",

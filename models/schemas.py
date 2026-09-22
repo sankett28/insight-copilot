@@ -103,16 +103,59 @@ class ToolName(str, Enum):
     CORRELATION = "correlation"
     SEGMENTATION = "segmentation"
 
+    # Data transformation & hygiene
+    DATA_CLEAN = "data_clean"
+
 
 # ---------------------------------------------------------------------------
 # Typed Tool Request Contracts
 # ---------------------------------------------------------------------------
 
 
+class DataCleanRequest(BaseModel):
+    """Structured parameter contract for interactive data cleaning operations."""
+
+    columns: list[str] = Field(
+        default=["Region"],
+        description="Target categorical or numeric columns to clean (e.g. ['Region']).",
+    )
+    operations: list[Literal["standardize_casing", "fuzzy_deduplicate", "fill_nulls"]] = Field(
+        default=["standardize_casing", "fuzzy_deduplicate", "fill_nulls"],
+        description="Cleaning operations to apply.",
+    )
+    fill_null_value: str = Field(
+        default="Unassigned",
+        description="Replacement value for nulls in categorical dimensions.",
+    )
+    similarity_threshold: int = Field(
+        default=1,
+        ge=1,
+        le=3,
+        description="Maximum Levenshtein edit distance for typo clustering (default 1).",
+    )
+
+    @field_validator("columns")
+    @classmethod
+    def validate_columns(cls, cols: list[str]) -> list[str]:
+        valid_cols = []
+        for col in cols:
+            matched = None
+            for c in CANONICAL_COLUMNS:
+                if col.lower() == c.lower():
+                    matched = c
+                    break
+            if matched:
+                valid_cols.append(matched)
+            else:
+                raise ValueError(f"Invalid column '{col}'. Must be in {CANONICAL_COLUMNS}.")
+        return valid_cols
+
+
 class MetricsRequest(BaseModel):
     """Structured parameter contract for the metrics tool."""
 
     metric: str = Field(
+
         ...,
         description="Target numeric column (Units_Sold, Unit_Price, Revenue, Cost, Profit).",
     )

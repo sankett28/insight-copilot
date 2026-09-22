@@ -12,6 +12,7 @@ Design contract:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from agent.state import AgentState
@@ -55,7 +56,9 @@ def data_clean_tool_node(state: AgentState) -> dict:
 
     try:
         clean_req = DataCleanRequest.model_validate(raw_params)
+        start_t = time.perf_counter()
         audit_summary = execute_data_clean(clean_req)
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
 
         existing_results.append(
             ToolResult(
@@ -63,6 +66,9 @@ def data_clean_tool_node(state: AgentState) -> dict:
                 step_number=plan_step.step_number,
                 success=True,
                 data=audit_summary,
+                source_view="dataset",
+                row_count=len(audit_summary.get("columns_cleaned", [])) if isinstance(audit_summary, dict) else 1,
+                execution_time_ms=duration_ms,
             )
         )
         return {"tool_results": existing_results}
@@ -76,6 +82,7 @@ def data_clean_tool_node(state: AgentState) -> dict:
                 success=False,
                 data=None,
                 error=f"DataClean error: {exc}",
+                source_view="dataset",
             )
         )
         return {"tool_results": existing_results}

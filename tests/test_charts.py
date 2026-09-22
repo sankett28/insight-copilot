@@ -133,3 +133,20 @@ def test_7_missing_preceding_data_failure():
     assert len(results) == 1
     assert results[0].success is False
     assert "No valid preceding tabular data" in results[0].error
+
+
+def test_8_invalid_axis_column_rejection():
+    """Verify render_chart_from_data raises ValueError when axis column is absent from data."""
+    import pytest
+    data = [{"Region": "North", "Revenue": 1000.0}]
+    req = ChartRequest(chart_type="bar", x="NonExistentAxis", y="Revenue")
+    with pytest.raises(ValueError, match="not found in data columns"):
+        render_chart_from_data(data, req)
+
+
+def test_9_empty_data_raises_value_error():
+    """Verify render_chart_from_data raises ValueError when provided with an empty list."""
+    import pytest
+    req = ChartRequest(chart_type="bar", x="Region", y="Revenue")
+    with pytest.raises(ValueError, match="Cannot render chart from empty data records"):
+        render_chart_from_data([], req)

@@ -42,7 +42,7 @@ def test_profitability_sorting_by_revenue():
 
 
 def test_profitability_tool_node_success():
-    """Verify profitability node executes and appends ToolResult."""
+    """Verify profitability node executes and appends ToolResult with provenance."""
     plan = AnalysisPlan(
         intent=Intent.METRICS,
         rationale="Calculate product profitability.",
@@ -63,3 +63,14 @@ def test_profitability_tool_node_success():
     assert trs[0].tool == ToolName.PROFITABILITY
     assert trs[0].success is True
     assert len(trs[0].data) == 3
+    assert trs[0].source_view == "dataset"
+    assert trs[0].row_count == 3
+    assert trs[0].execution_time_ms is not None
+
+
+def test_profitability_zero_matching_records_guard():
+    """Verify profitability executes cleanly when filters match 0 rows without division errors."""
+    req = ProfitabilityRequest(dimension="Region", filters={"Region": "NonExistentRegion"})
+    res = execute_profitability(req)
+    assert isinstance(res, list)
+    assert len(res) == 0

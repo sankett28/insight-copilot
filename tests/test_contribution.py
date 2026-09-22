@@ -40,7 +40,7 @@ def test_contribution_with_limit():
 
 
 def test_contribution_tool_node_success():
-    """Verify node successfully executes and appends ToolResult."""
+    """Verify node successfully executes and appends ToolResult with provenance."""
     plan = AnalysisPlan(
         intent=Intent.METRICS,
         rationale="Category contribution to profit.",
@@ -61,3 +61,20 @@ def test_contribution_tool_node_success():
     assert trs[0].tool == ToolName.CONTRIBUTION
     assert trs[0].success is True
     assert len(trs[0].data) == 3
+    assert trs[0].source_view == "dataset"
+    assert trs[0].row_count == 3
+    assert trs[0].execution_time_ms is not None
+
+
+def test_contribution_preserves_population_share_with_limit():
+    """Verify pct_of_total is calculated over the full population even when limit is applied."""
+    req_full = ContributionRequest(metric="Revenue", dimension="Product")
+    res_full = execute_contribution(req_full)
+
+    req_limit = ContributionRequest(metric="Revenue", dimension="Product", limit=3)
+    res_limit = execute_contribution(req_limit)
+
+    assert len(res_limit) == 3
+    for i in range(3):
+        assert res_limit[i]["Product"] == res_full[i]["Product"]
+        assert res_limit[i]["pct_of_total"] == res_full[i]["pct_of_total"]

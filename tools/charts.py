@@ -13,6 +13,7 @@ Design contract:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import pandas as pd
@@ -114,6 +115,7 @@ def charts_tool_node(state: AgentState) -> dict:
         chart_type = raw_params.get("chart_type", "bar")
         title = raw_params.get("title", f"{y_col} by {x_col}")
 
+        start_t = time.perf_counter()
         req = ChartRequest(
             chart_type=chart_type,
             x=str(x_col),
@@ -123,6 +125,7 @@ def charts_tool_node(state: AgentState) -> dict:
         )
 
         fig_dict = render_chart_from_data(rows, req)
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
 
         existing_results = list(tool_results)
         existing_results.append(
@@ -132,6 +135,9 @@ def charts_tool_node(state: AgentState) -> dict:
                 success=True,
                 data=fig_dict,
                 error=None,
+                source_view="tool_result",
+                row_count=len(rows),
+                execution_time_ms=duration_ms,
             )
         )
 
@@ -153,6 +159,7 @@ def charts_tool_node(state: AgentState) -> dict:
                 success=False,
                 data=None,
                 error=f"Charts rendering error: {exc}",
+                source_view="tool_result",
             )
         )
         return {"tool_results": existing_results}
@@ -164,7 +171,17 @@ def render_chart_from_data(
     req: ChartRequest,
 ) -> dict[str, Any]:
     """Render a Plotly figure and return fig.to_dict()."""
+    if not data:
+        raise ValueError("Cannot render chart from empty data records.")
+
     df = pd.DataFrame(data)
+
+    if req.x not in df.columns:
+        raise ValueError(f"Chart x-axis column '{req.x}' not found in data columns: {list(df.columns)}")
+    if req.y not in df.columns:
+        raise ValueError(f"Chart y-axis column '{req.y}' not found in data columns: {list(df.columns)}")
+    if req.color and req.color not in df.columns:
+        raise ValueError(f"Chart color column '{req.color}' not found in data columns: {list(df.columns)}")
 
     if req.chart_type == "bar":
         fig = px.bar(

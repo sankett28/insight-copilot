@@ -12,6 +12,7 @@ Design contract:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from agent.state import AgentState
@@ -60,7 +61,9 @@ def data_query_tool_node(state: AgentState) -> dict:
 
     try:
         req = DataQueryRequest.model_validate(raw_params)
+        start_t = time.perf_counter()
         data = execute_data_query_request(req)
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
         existing_results.append(
             ToolResult(
                 tool=ToolName.DATA_QUERY,
@@ -68,6 +71,9 @@ def data_query_tool_node(state: AgentState) -> dict:
                 success=True,
                 data=data,
                 error=None,
+                source_view="dataset",
+                row_count=len(data),
+                execution_time_ms=duration_ms,
             )
         )
         return {"tool_results": existing_results}
@@ -80,6 +86,7 @@ def data_query_tool_node(state: AgentState) -> dict:
                 success=False,
                 data=None,
                 error=f"DataQuery calculation error: {exc}",
+                source_view="dataset",
             )
         )
         return {"tool_results": existing_results}

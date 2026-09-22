@@ -13,6 +13,7 @@ Design contract:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from agent.state import AgentState
@@ -63,7 +64,9 @@ def data_profile_tool_node(state: AgentState) -> dict:
 
     try:
         req = DataProfileRequest.model_validate(raw_params)
+        start_t = time.perf_counter()
         profile_data = execute_data_profile(req)
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
         existing_results.append(
             ToolResult(
                 tool=ToolName.DATA_PROFILE,
@@ -71,6 +74,9 @@ def data_profile_tool_node(state: AgentState) -> dict:
                 success=True,
                 data=profile_data,
                 error=None,
+                source_view="dataset",
+                row_count=profile_data.get("row_count") if isinstance(profile_data, dict) else 1,
+                execution_time_ms=duration_ms,
             )
         )
         return {"tool_results": existing_results}
@@ -82,7 +88,8 @@ def data_profile_tool_node(state: AgentState) -> dict:
                 step_number=plan_step.step_number,
                 success=False,
                 data=None,
-                error=f"DataProfile execution error: {exc}",
+                error=f"DataProfile calculation error: {exc}",
+                source_view="dataset",
             )
         )
         return {"tool_results": existing_results}

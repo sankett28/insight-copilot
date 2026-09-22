@@ -640,6 +640,18 @@ class ToolResult(BaseModel):
         default=None,
         description="Error message if success=False, otherwise None.",
     )
+    source_view: str = Field(
+        default="dataset",
+        description="DuckDB source view queried ('dataset' or 'raw_dataset').",
+    )
+    row_count: int | None = Field(
+        default=None,
+        description="Number of records or rows returned by the operation.",
+    )
+    execution_time_ms: float | None = Field(
+        default=None,
+        description="Execution duration in milliseconds.",
+    )
 
 
 class Role(str, Enum):

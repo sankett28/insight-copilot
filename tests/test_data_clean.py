@@ -14,7 +14,11 @@ from utils.data_cleaner import (
     build_fuzzy_cluster_mapping,
     levenshtein_distance,
 )
-from utils.data_loader import get_connection, reset_to_raw_dataset
+from utils.data_loader import (
+    create_session_connection,
+    get_connection,
+    reset_to_raw_dataset,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -146,3 +150,29 @@ def test_downstream_metrics_aggregation_after_cleaning():
     assert regional_dict["West"] == 5598997.0
     # Total North includes 5069178 + 18818 + 17786 = 5105782
     assert regional_dict["North"] == 5105782.0
+
+
+def test_concurrent_clean_isolation():
+    """Verify data cleaning on connection A does not alter raw/uncleaned view on connection B."""
+    conn_a = create_session_connection()
+    conn_b = create_session_connection()
+
+    req = DataCleanRequest(
+        columns=["Region"],
+        operations=["standardize_casing", "fuzzy_deduplicate", "fill_nulls"],
+    )
+
+    # Clean conn_a
+    audit = execute_data_clean(req, conn=conn_a)
+    assert audit["status"] == "success"
+
+    # Distinct regions on conn_a should be 5
+    distinct_a = conn_a.execute("SELECT COUNT(DISTINCT Region) FROM dataset").fetchone()[0]
+    assert distinct_a == 5
+
+    # Distinct regions on conn_b should remain 9 (uncleaned raw)
+    distinct_b = conn_b.execute("SELECT COUNT(DISTINCT Region) FROM dataset").fetchone()[0]
+    assert distinct_b == 9
+
+    conn_a.close()
+    conn_b.close()

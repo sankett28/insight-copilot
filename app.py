@@ -27,7 +27,12 @@ from agent.graph import build_graph
 from agent.state import create_initial_state
 from llm.factory import create_llm
 from models.schemas import Message, Role
-from utils.data_loader import get_schema_description, validate_dataset
+from utils.data_loader import (
+    create_session_connection,
+    get_schema_description,
+    reset_to_raw_dataset,
+    validate_dataset,
+)
 
 load_dotenv()
 
@@ -74,6 +79,8 @@ st.session_state.setdefault("current_plan", None)
 st.session_state.setdefault("current_tool_results", [])
 st.session_state.setdefault("current_errors", [])
 st.session_state.setdefault("pending_query", None)
+if "db_conn" not in st.session_state:
+    st.session_state["db_conn"] = create_session_connection()
 
 # ---------------------------------------------------------------------------
 # Sidebar: Dataset Explorer & Configuration
@@ -128,8 +135,7 @@ with st.sidebar:
 
     # Reset Cleaned Data View Button
     if st.button("🔄 Reset Active Dataset to Raw", use_container_width=True):
-        from utils.data_loader import reset_to_raw_dataset
-        reset_to_raw_dataset()
+        reset_to_raw_dataset(st.session_state.get("db_conn"))
         st.toast("Active dataset view reset to raw data.", icon="🔄")
         st.rerun()
 

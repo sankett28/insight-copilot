@@ -140,6 +140,105 @@ with st.sidebar:
         st.rerun()
 
 # ---------------------------------------------------------------------------
+# UI Helper Functions
+# ---------------------------------------------------------------------------
+
+def _render_tool_result_ui(tr: Any) -> None:
+    """Render structured, readable presentation of tool execution results."""
+    if tr.error:
+        st.error(tr.error)
+        return
+
+    data = tr.data
+    if data is None:
+        st.caption("No data returned.")
+        return
+
+    if isinstance(data, list):
+        if len(data) > 0:
+            st.dataframe(data, use_container_width=True)
+        else:
+            st.caption("Query returned 0 matching records.")
+        return
+
+    if isinstance(data, dict):
+        # 1. Data Profile rendering
+        if "numeric_summary" in data and "row_count" in data:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Rows", f"{data.get('row_count', 0):,}")
+            c2.metric("Total Columns", data.get("column_count", 0))
+            dr = data.get("date_range", {})
+            c3.metric("Date Span", f"{dr.get('min', 'N/A')} → {dr.get('max', 'N/A')}")
+
+            warnings = data.get("data_quality_warnings", [])
+            if warnings:
+                st.markdown("⚠️ **Data Quality Warnings:**")
+                for w in warnings:
+                    st.warning(w)
+
+            st.markdown("📈 **Numeric Metric Summary:**")
+            num_summary = data.get("numeric_summary", {})
+            if num_summary:
+                summary_rows = []
+                for col_name, stats in num_summary.items():
+                    summary_rows.append({
+                        "Metric": col_name,
+                        "Min": stats.get("min"),
+                        "Max": stats.get("max"),
+                        "Mean": stats.get("mean"),
+                        "Std Dev": stats.get("stddev"),
+                    })
+                st.dataframe(summary_rows, use_container_width=True)
+
+            tab1, tab2 = st.tabs(["Null Counts", "Categorical Cardinality"])
+            with tab1:
+                null_counts = data.get("null_counts", {})
+                null_rows = [{"Column": k, "Nulls": v} for k, v in null_counts.items()]
+                st.dataframe(null_rows, use_container_width=True)
+            with tab2:
+                cardinality = data.get("categorical_cardinality", {})
+                card_rows = [{"Dimension": k, "Distinct Values": v} for k, v in cardinality.items()]
+                st.dataframe(card_rows, use_container_width=True)
+            return
+
+        # 2. Correlation rendering
+        if "correlation_coefficient" in data and "field_a" in data:
+            c1, c2 = st.columns(2)
+            c1.metric("Field Pair", f"{data['field_a']} vs {data['field_b']}")
+            c2.metric("Correlation (r)", f"{data['correlation_coefficient']:+.4f}")
+            st.info(f"**Interpretation**: {data.get('interpretation', '').capitalize()}")
+            st.caption(f"ℹ️ *{data.get('caveat', '')}*")
+            return
+
+        # 3. Anomaly Detection rendering
+        if "total_anomalies" in data and "rows" in data:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Metric", data.get("metric", ""))
+            c2.metric("Method", data.get("method", "").upper())
+            c3.metric("Anomalies Found", data.get("total_anomalies", 0))
+            if data.get("rows"):
+                st.markdown("🔍 **Flagged Outlier Records:**")
+                st.dataframe(data["rows"], use_container_width=True)
+            else:
+                st.success("No anomalies detected outside threshold boundaries.")
+            return
+
+        # 4. Standard rows table
+        if "rows" in data and isinstance(data["rows"], list):
+            st.dataframe(data["rows"], use_container_width=True)
+            with st.expander("Summary Statistics", expanded=False):
+                summary_dict = {k: v for k, v in data.items() if k != "rows"}
+                st.json(summary_dict)
+            return
+
+        # Fallback to json
+        st.json(data)
+        return
+
+    st.write(data)
+
+
+# ---------------------------------------------------------------------------
 # Main Layout: Split Screen (Chat 60% | Trace 40%)
 # ---------------------------------------------------------------------------
 
@@ -251,98 +350,4 @@ with col_trace:
             with st.expander(header, expanded=tr.success):
                 _render_tool_result_ui(tr)
 
-
-def _render_tool_result_ui(tr: Any) -> None:
-    """Render structured, readable presentation of tool execution results."""
-    if tr.error:
-        st.error(tr.error)
-        return
-
-    data = tr.data
-    if data is None:
-        st.caption("No data returned.")
-        return
-
-    if isinstance(data, list):
-        if len(data) > 0:
-            st.dataframe(data, use_container_width=True)
-        else:
-            st.caption("Query returned 0 matching records.")
-        return
-
-    if isinstance(data, dict):
-        # 1. Data Profile rendering
-        if "numeric_summary" in data and "row_count" in data:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Rows", f"{data.get('row_count', 0):,}")
-            c2.metric("Total Columns", data.get("column_count", 0))
-            dr = data.get("date_range", {})
-            c3.metric("Date Span", f"{dr.get('min', 'N/A')} → {dr.get('max', 'N/A')}")
-
-            warnings = data.get("data_quality_warnings", [])
-            if warnings:
-                st.markdown("⚠️ **Data Quality Warnings:**")
-                for w in warnings:
-                    st.warning(w)
-
-            st.markdown("📈 **Numeric Metric Summary:**")
-            num_summary = data.get("numeric_summary", {})
-            if num_summary:
-                summary_rows = []
-                for col_name, stats in num_summary.items():
-                    summary_rows.append({
-                        "Metric": col_name,
-                        "Min": stats.get("min"),
-                        "Max": stats.get("max"),
-                        "Mean": stats.get("mean"),
-                        "Std Dev": stats.get("stddev"),
-                    })
-                st.dataframe(summary_rows, use_container_width=True)
-
-            tab1, tab2 = st.tabs(["Null Counts", "Categorical Cardinality"])
-            with tab1:
-                null_counts = data.get("null_counts", {})
-                null_rows = [{"Column": k, "Nulls": v} for k, v in null_counts.items()]
-                st.dataframe(null_rows, use_container_width=True)
-            with tab2:
-                cardinality = data.get("categorical_cardinality", {})
-                card_rows = [{"Dimension": k, "Distinct Values": v} for k, v in cardinality.items()]
-                st.dataframe(card_rows, use_container_width=True)
-            return
-
-        # 2. Correlation rendering
-        if "correlation_coefficient" in data and "field_a" in data:
-            c1, c2 = st.columns(2)
-            c1.metric("Field Pair", f"{data['field_a']} vs {data['field_b']}")
-            c2.metric("Correlation (r)", f"{data['correlation_coefficient']:+.4f}")
-            st.info(f"**Interpretation**: {data.get('interpretation', '').capitalize()}")
-            st.caption(f"ℹ️ *{data.get('caveat', '')}*")
-            return
-
-        # 3. Anomaly Detection rendering
-        if "total_anomalies" in data and "rows" in data:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Metric", data.get("metric", ""))
-            c2.metric("Method", data.get("method", "").upper())
-            c3.metric("Anomalies Found", data.get("total_anomalies", 0))
-            if data.get("rows"):
-                st.markdown("🔍 **Flagged Outlier Records:**")
-                st.dataframe(data["rows"], use_container_width=True)
-            else:
-                st.success("No anomalies detected outside threshold boundaries.")
-            return
-
-        # 4. Standard rows table
-        if "rows" in data and isinstance(data["rows"], list):
-            st.dataframe(data["rows"], use_container_width=True)
-            with st.expander("Summary Statistics", expanded=False):
-                summary_dict = {k: v for k, v in data.items() if k != "rows"}
-                st.json(summary_dict)
-            return
-
-        # Fallback to json
-        st.json(data)
-        return
-
-    st.write(data)
 

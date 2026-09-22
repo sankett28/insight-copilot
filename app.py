@@ -68,17 +68,12 @@ dataset_status, dataset_schema = init_data_layer()
 # Session State Initialization
 # ---------------------------------------------------------------------------
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "turn_artifacts" not in st.session_state:
-    # Map message index -> list of chart dicts
-    st.session_state.turn_artifacts = {}
-if "current_plan" not in st.session_state:
-    st.session_state.current_plan = None
-if "current_tool_results" not in st.session_state:
-    st.session_state.current_tool_results = []
-if "current_errors" not in st.session_state:
-    st.session_state.current_errors = []
+st.session_state.setdefault("messages", [])
+st.session_state.setdefault("turn_artifacts", {})
+st.session_state.setdefault("current_plan", None)
+st.session_state.setdefault("current_tool_results", [])
+st.session_state.setdefault("current_errors", [])
+st.session_state.setdefault("pending_query", None)
 
 # ---------------------------------------------------------------------------
 # Sidebar: Dataset Explorer & Configuration
@@ -126,18 +121,20 @@ with st.sidebar:
     ]
     for sq in starter_queries:
         if st.button(sq, use_container_width=True, key=f"btn_{sq}"):
-            st.session_state.pending_query = sq
+            st.session_state["pending_query"] = sq
 
     st.divider()
 
     # Clear Chat Button
     if st.button("🗑️ Clear Conversation", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.turn_artifacts = {}
-        st.session_state.current_plan = None
-        st.session_state.current_tool_results = []
-        st.session_state.current_errors = []
+        st.session_state["messages"] = []
+        st.session_state["turn_artifacts"] = {}
+        st.session_state["current_plan"] = None
+        st.session_state["current_tool_results"] = []
+        st.session_state["current_errors"] = []
+        st.session_state["pending_query"] = None
         st.rerun()
+
 
 # ---------------------------------------------------------------------------
 # UI Helper Functions
@@ -248,8 +245,11 @@ col_chat, col_trace = st.columns([1.5, 1.0], gap="large")
 with col_chat:
     st.subheader("💬 Conversation")
 
+    messages = st.session_state.get("messages", [])
+    turn_artifacts = st.session_state.get("turn_artifacts", {})
+
     # Empty State Guide
-    if not st.session_state.messages:
+    if not messages:
         st.info(
             "👋 **Welcome to Insight Copilot!**\n\n"
             "Ask questions about sales revenue, regional profitability, temporal trends, statistical anomalies, or correlations. "
@@ -257,14 +257,14 @@ with col_chat:
         )
 
     # Render Conversation History
-    for idx, msg in enumerate(st.session_state.messages):
+    for idx, msg in enumerate(messages):
         role_label = "user" if msg.role == Role.USER else "assistant"
         with st.chat_message(role_label):
             st.markdown(msg.content)
 
             # Render inline charts attached to this assistant turn
-            if role_label == "assistant" and idx in st.session_state.turn_artifacts:
-                for chart_dict in st.session_state.turn_artifacts[idx]:
+            if role_label == "assistant" and idx in turn_artifacts:
+                for chart_dict in turn_artifacts[idx]:
                     fig = go.Figure(chart_dict)
                     fig.update_layout(
                         template="plotly_dark",
@@ -274,9 +274,9 @@ with col_chat:
 
     # Handle Input from chat_input or sidebar quick starters
     user_query = st.chat_input("Ask an analytical question about the 2024 sales dataset...")
-    if "pending_query" in st.session_state and st.session_state.pending_query:
-        user_query = st.session_state.pending_query
-        st.session_state.pending_query = None
+    if st.session_state.get("pending_query"):
+        user_query = st.session_state["pending_query"]
+        st.session_state["pending_query"] = None
 
     if user_query:
         # Display user message immediately in chat
@@ -286,7 +286,7 @@ with col_chat:
         # Build initial turn state
         initial_state = create_initial_state(
             query=user_query,
-            history=st.session_state.messages,
+            history=st.session_state.get("messages", []),
         )
 
         with st.spinner("Analyzing dataset & executing analytical plan..."):
@@ -295,16 +295,18 @@ with col_chat:
                 final_state = agent_graph.invoke(initial_state)
 
                 # Update session state with turn outputs
-                st.session_state.messages = final_state.get("messages", [])
-                st.session_state.current_plan = final_state.get("plan")
-                st.session_state.current_tool_results = final_state.get("tool_results", [])
-                st.session_state.current_errors = final_state.get("errors", [])
+                st.session_state["messages"] = final_state.get("messages", [])
+                st.session_state["current_plan"] = final_state.get("plan")
+                st.session_state["current_tool_results"] = final_state.get("tool_results", [])
+                st.session_state["current_errors"] = final_state.get("errors", [])
 
                 # Store any generated charts linked to the latest assistant message index
-                latest_assistant_idx = len(st.session_state.messages) - 1
+                latest_assistant_idx = len(st.session_state["messages"]) - 1
                 charts = final_state.get("chart_artifacts", [])
                 if charts:
-                    st.session_state.turn_artifacts[latest_assistant_idx] = charts
+                    if "turn_artifacts" not in st.session_state:
+                        st.session_state["turn_artifacts"] = {}
+                    st.session_state["turn_artifacts"][latest_assistant_idx] = charts
 
                 st.rerun()
 
@@ -315,16 +317,20 @@ with col_chat:
 with col_trace:
     st.subheader("🗺️ Execution Plan & Trace")
 
+    current_errors = st.session_state.get("current_errors", [])
+    current_plan = st.session_state.get("current_plan")
+    current_tool_results = st.session_state.get("current_tool_results", [])
+
     # Error Alert if turn encountered errors
-    if st.session_state.current_errors:
+    if current_errors:
         st.error(
             "**Encountered Warning / Error**:\n"
-            + "\n".join([f"- {err}" for err in st.session_state.current_errors])
+            + "\n".join([f"- {err}" for err in current_errors])
         )
 
     # Analytical Plan Card
-    if st.session_state.current_plan:
-        plan = st.session_state.current_plan
+    if current_plan:
+        plan = current_plan
         with st.container():
             st.markdown(f"**Intent**: `{plan.intent.value.upper()}`")
             st.markdown(f"**Rationale**: *{plan.rationale}*")
@@ -341,13 +347,14 @@ with col_trace:
         st.info("Submit a question to inspect the Planner's step-by-step analytical execution plan.")
 
     # Tool Execution Results Card
-    if st.session_state.current_tool_results:
+    if current_tool_results:
         st.write("---")
         st.markdown("**Deterministic Tool Outputs**:")
-        for tr in st.session_state.current_tool_results:
+        for tr in current_tool_results:
             icon = "✅" if tr.success else "❌"
             header = f"{icon} Step {tr.step_number}: `{tr.tool.value}`"
             with st.expander(header, expanded=tr.success):
                 _render_tool_result_ui(tr)
+
 
 

@@ -1,0 +1,378 @@
+[
+  {
+    "id": "eval_01",
+    "category": "single_tool_metrics",
+    "query": "What is the total revenue in 2024?",
+    "expected_intent": "metrics",
+    "expected_tools": ["metrics"],
+    "expected_params": [
+      {"metric": "Revenue", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_02",
+    "category": "single_tool_metrics",
+    "query": "What is the total profit grouped by product category?",
+    "expected_intent": "metrics",
+    "expected_tools": ["metrics"],
+    "expected_params": [
+      {"metric": "Profit", "aggregation": "sum", "group_by": "Category"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_03",
+    "category": "single_tool_metrics",
+    "query": "What is the average unit price for each product?",
+    "expected_intent": "metrics",
+    "expected_tools": ["metrics"],
+    "expected_params": [
+      {"metric": "Unit_Price", "aggregation": "avg", "group_by": "Product"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_04",
+    "category": "single_tool_metrics",
+    "query": "Which salesperson sold the highest number of units?",
+    "expected_intent": "metrics",
+    "expected_tools": ["metrics"],
+    "expected_params": [
+      {"metric": "Units_Sold", "aggregation": "sum", "group_by": "Salesperson", "sort": "desc", "limit": 1}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_05",
+    "category": "single_tool_trends",
+    "query": "Show me monthly revenue trends for 2024",
+    "expected_intent": "trend",
+    "expected_tools": ["trends"],
+    "expected_params": [
+      {"metric": "Revenue", "date_column": "Date", "granularity": "month"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_06",
+    "category": "single_tool_trends",
+    "query": "Show quarterly profit trend by Region",
+    "expected_intent": "trend",
+    "expected_tools": ["trends"],
+    "expected_params": [
+      {"metric": "Profit", "date_column": "Date", "granularity": "quarter", "group_by": "Region"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_07",
+    "category": "single_tool_profitability",
+    "query": "What is the profit margin by product category?",
+    "expected_intent": "metrics",
+    "expected_tools": ["profitability"],
+    "expected_params": [
+      {"dimension": "Category", "sort_by": "profit_margin_pct"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_08",
+    "category": "single_tool_profitability",
+    "query": "Rank salespeople by overall profit margin",
+    "expected_intent": "metrics",
+    "expected_tools": ["profitability"],
+    "expected_params": [
+      {"dimension": "Salesperson", "sort_by": "profit_margin_pct"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_09",
+    "category": "single_tool_compare",
+    "query": "Compare total revenue between North and South regions",
+    "expected_intent": "metrics",
+    "expected_tools": ["compare"],
+    "expected_params": [
+      {"metric": "Revenue", "dimension": "Region", "value_a": "North", "value_b": "South", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_10",
+    "category": "single_tool_compare",
+    "query": "Compare profit between Electronics and Furniture categories",
+    "expected_intent": "metrics",
+    "expected_tools": ["compare"],
+    "expected_params": [
+      {"metric": "Profit", "dimension": "Category", "value_a": "Electronics", "value_b": "Furniture", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_11",
+    "category": "single_tool_contribution",
+    "query": "What percentage share of total revenue does each region contribute?",
+    "expected_intent": "metrics",
+    "expected_tools": ["contribution"],
+    "expected_params": [
+      {"metric": "Revenue", "dimension": "Region", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_12",
+    "category": "single_tool_contribution",
+    "query": "What is the profit contribution breakdown across product categories?",
+    "expected_intent": "metrics",
+    "expected_tools": ["contribution"],
+    "expected_params": [
+      {"metric": "Profit", "dimension": "Category", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_13",
+    "category": "single_tool_variance",
+    "query": "What is the month over month revenue growth and variance in 2024?",
+    "expected_intent": "trend",
+    "expected_tools": ["variance"],
+    "expected_params": [
+      {"metric": "Revenue", "granularity": "month"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_14",
+    "category": "single_tool_variance",
+    "query": "Show quarterly profit variance grouped by Region",
+    "expected_intent": "trend",
+    "expected_tools": ["variance"],
+    "expected_params": [
+      {"metric": "Profit", "granularity": "quarter", "group_by": "Region"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_15",
+    "category": "single_tool_data_query",
+    "query": "Show the top 10 transactions by Revenue",
+    "expected_intent": "data_query",
+    "expected_tools": ["data_query"],
+    "expected_params": [
+      {"sort_by": "Revenue", "sort_order": "desc", "limit": 10}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_16",
+    "category": "single_tool_data_profile",
+    "query": "Profile the dataset quality and check for missing null values",
+    "expected_intent": "data_query",
+    "expected_tools": ["data_profile"],
+    "expected_params": [
+      {}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_17",
+    "category": "multi_tool_visualization",
+    "query": "Plot monthly revenue trend as a line chart",
+    "expected_intent": "combined",
+    "expected_tools": ["trends", "charts"],
+    "expected_params": [
+      {"metric": "Revenue", "date_column": "Date", "granularity": "month"},
+      {"chart_type": "line", "x": "period", "y": "total_revenue"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_18",
+    "category": "multi_tool_visualization",
+    "query": "Show a bar chart of total revenue by region",
+    "expected_intent": "combined",
+    "expected_tools": ["metrics", "charts"],
+    "expected_params": [
+      {"metric": "Revenue", "aggregation": "sum", "group_by": "Region"},
+      {"chart_type": "bar", "x": "Region", "y": "total_revenue"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_19",
+    "category": "multi_tool_visualization",
+    "query": "Show monthly profit trend by category with a line chart",
+    "expected_intent": "combined",
+    "expected_tools": ["trends", "charts"],
+    "expected_params": [
+      {"metric": "Profit", "date_column": "Date", "granularity": "month", "group_by": "Category"},
+      {"chart_type": "line", "x": "period", "y": "total_profit", "color": "Category"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_20",
+    "category": "multi_tool_visualization",
+    "query": "Visualize product category profit margins as a bar chart",
+    "expected_intent": "combined",
+    "expected_tools": ["profitability", "charts"],
+    "expected_params": [
+      {"dimension": "Category", "sort_by": "profit_margin_pct"},
+      {"chart_type": "bar", "x": "Category", "y": "profit_margin_pct"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_21",
+    "category": "advanced_statistical",
+    "query": "Detect revenue outliers and anomalies using IQR method",
+    "expected_intent": "metrics",
+    "expected_tools": ["anomaly_detection"],
+    "expected_params": [
+      {"metric": "Revenue", "method": "iqr", "threshold": 1.5}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_22",
+    "category": "advanced_statistical",
+    "query": "Find profit anomalies across regions using z-score",
+    "expected_intent": "metrics",
+    "expected_tools": ["anomaly_detection"],
+    "expected_params": [
+      {"metric": "Profit", "method": "zscore", "threshold": 2.5, "group_by": "Region"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_23",
+    "category": "advanced_statistical",
+    "query": "What is the Pearson correlation between Unit_Price and Units_Sold?",
+    "expected_intent": "metrics",
+    "expected_tools": ["correlation"],
+    "expected_params": [
+      {"field_a": "Unit_Price", "field_b": "Units_Sold"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_24",
+    "category": "advanced_statistical",
+    "query": "Is there a correlation between Revenue and Profit?",
+    "expected_intent": "metrics",
+    "expected_tools": ["correlation"],
+    "expected_params": [
+      {"field_a": "Revenue", "field_b": "Profit"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_25",
+    "category": "advanced_statistical",
+    "query": "Segment total revenue by Region and Category",
+    "expected_intent": "combined",
+    "expected_tools": ["segmentation"],
+    "expected_params": [
+      {"metric": "Revenue", "dimension_primary": "Region", "dimension_secondary": "Category", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_26",
+    "category": "advanced_statistical",
+    "query": "Segment profit across Category and Salesperson",
+    "expected_intent": "combined",
+    "expected_tools": ["segmentation"],
+    "expected_params": [
+      {"metric": "Profit", "dimension_primary": "Category", "dimension_secondary": "Salesperson", "aggregation": "sum"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_27",
+    "category": "data_cleaning",
+    "query": "Standardize region names and fix typos in the Region column",
+    "expected_intent": "data_query",
+    "expected_tools": ["data_clean"],
+    "expected_params": [
+      {"columns": ["Region"], "operations": ["standardize_casing", "fuzzy_deduplicate"]}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_28",
+    "category": "data_cleaning",
+    "query": "Clean the Region column and calculate total revenue by region",
+    "expected_intent": "combined",
+    "expected_tools": ["data_clean", "metrics"],
+    "expected_params": [
+      {"columns": ["Region"], "operations": ["standardize_casing", "fuzzy_deduplicate", "fill_nulls"]},
+      {"metric": "Revenue", "aggregation": "sum", "group_by": "Region"}
+    ],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_29",
+    "category": "meta_system",
+    "query": "Who are you and what was Insight Copilot built for?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_30",
+    "category": "meta_system",
+    "query": "What analytical capabilities and charts can you create?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_31",
+    "category": "meta_system",
+    "query": "How do you guarantee that your calculations contain zero hallucinations?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": true
+  },
+  {
+    "id": "eval_32",
+    "category": "adversarial_out_of_domain",
+    "query": "What is the weather forecast for New York City today?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": false
+  },
+  {
+    "id": "eval_33",
+    "category": "adversarial_out_of_domain",
+    "query": "What will Apple stock price be at the end of this year?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": false
+  },
+  {
+    "id": "eval_34",
+    "category": "adversarial_out_of_domain",
+    "query": "What is the total revenue for Customer_Segment Consumer?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": false
+  },
+  {
+    "id": "eval_35",
+    "category": "adversarial_out_of_domain",
+    "query": "What is the capital city of Australia?",
+    "expected_intent": "unknown",
+    "expected_tools": [],
+    "expected_params": [],
+    "is_in_domain": false
+  }
+]

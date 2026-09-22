@@ -1,32 +1,32 @@
 """
 llm/gemini.py
 -------------
-Gemini provider implementation of BaseLLM.
+Gemini provider implementation of BaseLLM using the modern `google-genai` SDK.
 
-Uses the `google-generativeai` SDK.  The API key is read from the
-GEMINI_API_KEY environment variable — never hard-coded.
-
-Structured output uses Gemini's response_schema parameter (available in
-gemini-1.5-pro and later) to guarantee valid JSON that maps to a Pydantic schema.
+The API key is read from the GEMINI_API_KEY environment variable — never hard-coded.
+Structured output uses Gemini's native response_schema parameter with Pydantic models.
 """
 
 from __future__ import annotations
 
-import json
+import logging
 import os
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from pydantic import BaseModel
 
 from llm.base import BaseLLM, LLMResponse
 
+logger = logging.getLogger(__name__)
+
 # Default model; can be overridden via constructor or GEMINI_MODEL env var.
-_DEFAULT_MODEL = "gemini-3.5-flash-lite"
+_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiLLM(BaseLLM):
-    """Google Gemini chat model via the `google-generativeai` SDK."""
+    """Google Gemini model provider using the modern `google-genai` SDK."""
 
     def __init__(
         self,
@@ -36,7 +36,7 @@ class GeminiLLM(BaseLLM):
         """Initialise the Gemini provider.
 
         Args:
-            model: Model identifier (e.g. ``"gemini-2.0-flash"``).
+            model: Model identifier (e.g. ``"gemini-2.5-flash"``).
                    Falls back to the ``GEMINI_MODEL`` env var, then ``_DEFAULT_MODEL``.
             api_key: Gemini API key.
                      Falls back to the ``GEMINI_API_KEY`` env var.
@@ -50,12 +50,11 @@ class GeminiLLM(BaseLLM):
                 "Gemini API key not found. "
                 "Set the GEMINI_API_KEY environment variable or pass api_key=."
             )
-        genai.configure(api_key=resolved_key)
 
         self._model_name: str = (
             model or os.environ.get("GEMINI_MODEL") or _DEFAULT_MODEL
         )
-        self._client = genai.GenerativeModel(self._model_name)
+        self._client = genai.Client(api_key=resolved_key)
 
     # ------------------------------------------------------------------
     # BaseLLM interface
@@ -72,33 +71,27 @@ class GeminiLLM(BaseLLM):
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        """Send a list of messages to Gemini using ChatSession and return the plain-text reply."""
-        generation_config: dict[str, Any] = {"temperature": temperature}
-        if max_tokens is not None:
-            generation_config["max_output_tokens"] = max_tokens
-
-        gen_config = genai.types.GenerationConfig(**generation_config)
-
+        """Send a list of messages to Gemini and return the plain-text reply."""
         if not messages:
             return LLMResponse(content="", raw=None)
 
-        # Convert OpenAI-style messages into history + latest user prompt
-        history_contents: list[dict[str, Any]] = []
-        last_message = messages[-1]
+        contents, system_instruction = _build_genai_contents_and_system(messages)
 
-        for msg in messages[:-1]:
-            role = "user" if msg.get("role") in ("user", "system") else "model"
-            content = msg.get("content", "")
-            history_contents.append({"role": role, "parts": [content]})
-
-        print(f"\n[Gemini LLM] Sending Chat Request ({self._model_name}, temp={temperature})...")
-        chat_session = self._client.start_chat(history=history_contents)
-        response = chat_session.send_message(
-            last_message.get("content", ""),
-            generation_config=gen_config,
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            system_instruction=system_instruction,
+            max_output_tokens=max_tokens,
         )
-        print(f"[Gemini LLM] Chat Response Received ({len(response.text)} chars)")
-        return LLMResponse(content=response.text, raw=response)
+
+        logger.info("Sending Gemini Chat Request (%s, temp=%.2f)...", self._model_name, temperature)
+        response = self._client.models.generate_content(
+            model=self._model_name,
+            contents=contents,
+            config=config,
+        )
+        text_content = response.text or ""
+        logger.info("Gemini Chat Response Received (%d chars)", len(text_content))
+        return LLMResponse(content=text_content, raw=response)
 
     def structured_chat(
         self,
@@ -109,31 +102,31 @@ class GeminiLLM(BaseLLM):
     ) -> BaseModel:
         """Send messages and parse the reply into *schema*.
 
-        Uses Gemini's JSON mode (response_mime_type="application/json") with
-        an inline JSON Schema derived from the Pydantic model.
+        Uses Gemini's native structured JSON mode with response_schema.
         """
-        generation_config: dict[str, Any] = {
-            "temperature": temperature,
-            "response_mime_type": "application/json",
-        }
+        contents, system_instruction = _build_genai_contents_and_system(messages)
 
-        prompt = _messages_to_prompt(messages)
-        # Append schema hint so the model knows the expected structure.
-        prompt += (
-            f"\n\nRespond with valid JSON conforming to this schema:\n"
-            f"{json.dumps(schema.model_json_schema(), indent=2)}"
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            response_schema=schema,
         )
 
-        print(f"\n[Gemini LLM] Sending Structured Plan Request ({self._model_name}, schema={schema.__name__})...")
-        response = self._client.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(**generation_config),
+        logger.info(
+            "Sending Gemini Structured Request (%s, schema=%s)...",
+            self._model_name,
+            schema.__name__,
+        )
+        response = self._client.models.generate_content(
+            model=self._model_name,
+            contents=contents,
+            config=config,
         )
 
-        raw_json = response.text.strip()
-        print(f"[Gemini LLM] Structured Response Received ({len(raw_json)} chars):\n{raw_json}")
+        raw_json = (response.text or "").strip()
+        logger.info("Gemini Structured Response Received (%d chars)", len(raw_json))
         return schema.model_validate_json(raw_json)
-
 
 
 # ---------------------------------------------------------------------------
@@ -141,17 +134,26 @@ class GeminiLLM(BaseLLM):
 # ---------------------------------------------------------------------------
 
 
-def _messages_to_prompt(messages: list[dict[str, str]]) -> str:
-    """Convert an OpenAI-style message list to a flat prompt string.
+def _build_genai_contents_and_system(
+    messages: list[dict[str, str]],
+) -> tuple[list[types.Content], str | None]:
+    """Convert OpenAI-style message dicts into google-genai Content objects and system instruction."""
+    contents: list[types.Content] = []
+    system_parts: list[str] = []
 
-    Format:
-        System: <content>
-        User: <content>
-        Assistant: <content>
-    """
-    parts: list[str] = []
     for msg in messages:
-        role = msg.get("role", "user").capitalize()
-        content = msg.get("content", "")
-        parts.append(f"{role}: {content}")
-    return "\n".join(parts)
+        role = msg.get("role", "user")
+        content_text = msg.get("content", "")
+        if role == "system":
+            system_parts.append(content_text)
+        else:
+            mapped_role = "user" if role == "user" else "model"
+            contents.append(
+                types.Content(
+                    role=mapped_role,
+                    parts=[types.Part.from_text(text=content_text)],
+                )
+            )
+
+    system_instruction = "\n\n".join(system_parts) if system_parts else None
+    return contents, system_instruction

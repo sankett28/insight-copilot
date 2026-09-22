@@ -57,14 +57,13 @@ def build_planner_node(llm: BaseLLM):
         try:
             plan: AnalysisPlan = llm.structured_chat(messages, AnalysisPlan)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Planner LLM call failed: %s", exc)
-            return {
-                "intent": Intent.UNKNOWN.value,
-                "plan": None,
-                "selected_tools": [],
-                "current_step": 0,
-                "errors": [f"Planner failed: {exc}"],
-            }
+            logger.warning("Planner LLM produced unstructured or conversational output: %s", exc)
+            plan = AnalysisPlan(
+                intent=Intent.UNKNOWN,
+                rationale="Query handled conversationally by synthesizer.",
+                steps=[],
+                selected_tools=[],
+            )
 
         logger.info(
             "Plan produced | intent=%s | steps=%d | tools=%s",
@@ -72,6 +71,7 @@ def build_planner_node(llm: BaseLLM):
             len(plan.steps),
             [t.value for t in plan.selected_tools],
         )
+
 
         return {
             "intent": plan.intent.value,

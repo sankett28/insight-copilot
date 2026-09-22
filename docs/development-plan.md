@@ -170,27 +170,27 @@ from real tool evidence.
 
 ### 2A — Capability Registry & Architecture
 
-- [ ] Design and implement `utils/capability_registry.py`
+- [x] Design and implement `utils/capability_registry.py`
   - `Capability` dataclass: `name`, `category`, `description`, `input_schema`, `output_schema`, `deterministic`, `dependencies`, `independent`, `consumes_previous_results`
   - `REGISTRY: dict[str, Capability]` — single authoritative source for all registered capabilities
   - `registry.to_planner_context() -> str` — generate capability list for planner system prompt
   - `registry.to_node_map() -> dict[str, str]` — generate router dispatch map from registry
-- [ ] Register all 4 Phase 1 capabilities in the registry
-- [ ] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `registry.to_planner_context()`
-- [ ] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `registry.to_node_map()`
-- [ ] Add ADR-009 documenting the Capability Registry decision
+- [x] Register all 4 Phase 1 capabilities in the registry
+- [x] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `registry.to_planner_context()`
+- [x] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `registry.to_node_map()`
+- [x] Add ADR-009 documenting the Capability Registry decision
 
 ### 2B — Planner Integration & Validation
 
-- [ ] Implement integration test script `tests/integration/test_planner_live.py` (skipped in CI, run manually with a real Gemini API key)
+- [x] Implement integration test script `tests/integration/test_planner_live.py` (skipped in CI, run manually with a real Gemini API key)
   - 15 representative queries covering all intent types
   - Assert each returns an `AnalysisPlan` with the correct `intent`
   - Assert each plan's `steps` have valid `parameters` matching the capability's `input_schema`
-- [ ] Iterate on `PLANNER_SYSTEM_PROMPT` until ≥13/15 queries produce correct plans
-- [ ] Validate that planner injects dataset schema summary (already wired, needs live verification)
-- [ ] Validate that `PlanStep.parameters` conform to `MetricsRequest`, `TrendsRequest`, etc. for all 4 Phase 1 tools
-- [ ] Add planner prompt unit tests: mock LLM returning known plans, assert router dispatches correctly
-- [ ] Migrate `GeminiLLM.chat()` from flat-prompt to `genai.ChatSession` for proper multi-turn context (remove the `TODO` in `gemini.py`)
+- [x] Iterate on `PLANNER_SYSTEM_PROMPT` until ≥13/15 queries produce correct plans
+- [x] Validate that planner injects dataset schema summary (already wired, needs live verification)
+- [x] Validate that `PlanStep.parameters` conform to `MetricsRequest`, `TrendsRequest`, etc. for all 4 Phase 1 tools
+- [x] Add planner prompt unit tests: mock LLM returning known plans, assert router dispatches correctly
+- [x] Migrate `GeminiLLM.chat()` from flat-prompt to `genai.ChatSession` for proper multi-turn context (remove the `TODO` in `gemini.py`)
 
 ### 2C — New Analytical Capabilities
 
@@ -200,102 +200,102 @@ schema, wire the LangGraph node, register in the Capability Registry, update
 
 #### `data_profile` capability
 
-- [ ] `DataProfileRequest` Pydantic schema (no required parameters)
-- [ ] `execute_data_profile()` — DuckDB queries for:
+- [x] `DataProfileRequest` Pydantic schema (no required parameters)
+- [x] `execute_data_profile()` — DuckDB queries for:
   - Row count and column count
   - Date range (`MIN(Date)`, `MAX(Date)`)
   - Numeric ranges: `MIN`, `MAX`, `MEAN`, `STDDEV` per metric column
   - Categorical cardinality: `COUNT(DISTINCT col)` per dimension column
   - Null counts per column
   - Data quality warnings: negative profit rows, duplicate rows, out-of-range dates
-- [ ] `data_profile_tool_node` — reads plan step, returns structured `ToolResult`
-- [ ] Register in Capability Registry as `DATA_ACCESS`, `independent=True`
-- [ ] Add `DATA_PROFILE` to `ToolName` enum in `models/schemas.py`
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_data_profile.py` — 8+ tests
+- [x] `data_profile_tool_node` — reads plan step, returns structured `ToolResult`
+- [x] Register in Capability Registry as `DATA_ACCESS`, `independent=True`
+- [x] Add `DATA_PROFILE` to `ToolName` enum in `models/schemas.py`
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_data_profile.py` — 8+ tests
 
 #### `compare` capability
 
-- [ ] `CompareRequest` Pydantic schema: `metric`, `aggregation`, `dimension`, `value_a`, `value_b`, optional `filters`
-- [ ] `execute_compare()` — two filtered aggregation queries + delta computation (absolute + percentage)
-- [ ] `compare_tool_node`
-- [ ] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
-- [ ] Add `COMPARE` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_compare.py` — 8+ tests covering region vs region, period vs period, category vs category, zero-division guard
+- [x] `CompareRequest` Pydantic schema: `metric`, `aggregation`, `dimension`, `value_a`, `value_b`, optional `filters`
+- [x] `execute_compare()` — two filtered aggregation queries + delta computation (absolute + percentage)
+- [x] `compare_tool_node`
+- [x] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
+- [x] Add `COMPARE` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_compare.py` — 8+ tests covering region vs region, period vs period, category vs category, zero-division guard
 
 #### `contribution` capability
 
-- [ ] `ContributionRequest` Pydantic schema: `metric`, `dimension`, optional `filters`, optional `limit`
-- [ ] `execute_contribution()` — `SUM(metric) OVER () AS grand_total` window function, percentage derivation
-- [ ] `contribution_tool_node`
-- [ ] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
-- [ ] Add `CONTRIBUTION` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_contribution.py` — 8+ tests: region contribution to revenue, category to profit, sum-to-100% invariant
+- [x] `ContributionRequest` Pydantic schema: `metric`, `dimension`, optional `filters`, optional `limit`
+- [x] `execute_contribution()` — `SUM(metric) OVER () AS grand_total` window function, percentage derivation
+- [x] `contribution_tool_node`
+- [x] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
+- [x] Add `CONTRIBUTION` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_contribution.py` — 8+ tests: region contribution to revenue, category to profit, sum-to-100% invariant
 
 #### `profitability` capability
 
-- [ ] `ProfitabilityRequest` Pydantic schema: `dimension`, optional `filters`, optional `limit`
-- [ ] `execute_profitability()` — `SUM(Profit) / NULLIF(SUM(Revenue), 0) AS profit_margin_pct` per group
-- [ ] Explicit guard: never treat `Revenue` as a proxy for profitability
-- [ ] `profitability_tool_node`
-- [ ] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
-- [ ] Add `PROFITABILITY` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_profitability.py` — 8+ tests: dimension grouping, margin computation, zero-revenue guard, ordering
+- [x] `ProfitabilityRequest` Pydantic schema: `dimension`, optional `filters`, optional `limit`
+- [x] `execute_profitability()` — `SUM(Profit) / NULLIF(SUM(Revenue), 0) AS profit_margin_pct` per group
+- [x] Explicit guard: never treat `Revenue` as a proxy for profitability
+- [x] `profitability_tool_node`
+- [x] Register in Capability Registry as `CORE_ANALYSIS`, `independent=True`
+- [x] Add `PROFITABILITY` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_profitability.py` — 8+ tests: dimension grouping, margin computation, zero-revenue guard, ordering
 
 #### `variance` capability
 
-- [ ] `VarianceRequest` Pydantic schema: `metric`, `granularity`, optional `group_by`, optional `filters`
-- [ ] `execute_variance()` — `LAG(metric) OVER (ORDER BY period)` window function with absolute and percentage delta
-- [ ] `variance_tool_node`
-- [ ] Register in Capability Registry as `CORE_ANALYSIS`; `independent=True`
-- [ ] Add `VARIANCE` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_variance.py` — 8+ tests: monthly delta, null handling for first row, percentage change precision
+- [x] `VarianceRequest` Pydantic schema: `metric`, `granularity`, optional `group_by`, optional `filters`
+- [x] `execute_variance()` — `LAG(metric) OVER (ORDER BY period)` window function with absolute and percentage delta
+- [x] `variance_tool_node`
+- [x] Register in Capability Registry as `CORE_ANALYSIS`; `independent=True`
+- [x] Add `VARIANCE` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_variance.py` — 8+ tests: monthly delta, null handling for first row, percentage change precision
 
 ### 2D — Synthesizer Integration & Grounding
 
-- [ ] Integration test `tests/integration/test_synthesizer_live.py` (manual, requires API key)
+- [x] Integration test `tests/integration/test_synthesizer_live.py` (manual, requires API key)
   - Feed real `ToolResult` objects from Phase 1 tools to synthesizer
   - Assert synthesizer does not introduce numbers absent from `ToolResult.data`
   - Test multi-tool scenarios: `[METRICS, CHARTS]`, `[TRENDS, COMPARE]`
-- [ ] Iterate on `SYNTHESIZER_SYSTEM_PROMPT` if hallucination is observed
-- [ ] Add evidence-citation pattern to synthesizer prompt: each claim should reference its step number
+- [x] Iterate on `SYNTHESIZER_SYSTEM_PROMPT` if hallucination is observed
+- [x] Add evidence-citation pattern to synthesizer prompt: each claim should reference its step number
 
 ### 2E — End-to-End & Multi-turn Tests
 
-- [ ] `tests/integration/test_e2e.py` — full graph invocation with live Gemini key
+- [x] `tests/integration/test_e2e.py` — full graph invocation with live Gemini key
   - At least 5 queries: metrics, trends, compare, contribution, mixed
   - Assert `final_answer` is non-empty
   - Assert `tool_results` contains ≥1 `ToolResult(success=True)`
   - Assert `errors` is empty
-- [ ] Multi-turn context test: Q1 sets up context, Q2 references "that" / "the West region"
-- [ ] Planner accuracy verification: ≥13/15 sample queries produce correct intent
+- [x] Multi-turn context test: Q1 sets up context, Q2 references "that" / "the West region"
+- [x] Planner accuracy verification: ≥13/15 sample queries produce correct intent
 
 ### 2F — Phase 2 Documentation Updates
 
-- [ ] Update `docs/architecture.md`:
+- [x] Update `docs/architecture.md`:
   - Mark all Phase 2 capabilities as implemented
   - Remove "Phase 2 Design Target" note from Capability Registry section
   - Update Mermaid diagram node list
-- [ ] Update `docs/development-plan.md`: mark Phase 2 tasks complete
-- [ ] Update `docs/decisions.md`: add ADR-009 (Capability Registry)
-- [ ] Update `README.md`: reflect Phase 2 capabilities as implemented
+- [x] Update `docs/development-plan.md`: mark Phase 2 tasks complete
+- [x] Update `docs/decisions.md`: add ADR-009 (Capability Registry)
+- [x] Update `README.md`: reflect Phase 2 capabilities as implemented
 
 ### Acceptance Criteria
 
-- [ ] `pytest tests/ -v` (offline) — all tests pass, count increases from 73
-- [ ] `pytest tests/integration/ -v` (requires `GEMINI_API_KEY`) — all integration tests pass
-- [ ] Planner accuracy: ≥13/15 representative queries produce correct `intent` and valid `PlanStep.parameters`
-- [ ] `data_profile` runs without error and returns all 10 fields
-- [ ] `compare` returns correct delta for North vs South revenue
-- [ ] `contribution` percentages sum to 100.0 (within floating-point tolerance)
-- [ ] `profitability` does not confuse revenue ranking with margin ranking
-- [ ] `variance` correctly returns `null` delta for first period row
-- [ ] Synthesizer answer for a single-step metrics query contains no numbers not in `ToolResult.data`
-- [ ] End-to-end test passes for: "What is revenue by region?" (metrics → synthesizer)
+- [x] `pytest tests/ -v` (offline) — all tests pass, count increases from 73
+- [x] `pytest tests/integration/ -v` (requires `GEMINI_API_KEY`) — all integration tests pass
+- [x] Planner accuracy: ≥13/15 representative queries produce correct `intent` and valid `PlanStep.parameters`
+- [x] `data_profile` runs without error and returns all 10 fields
+- [x] `compare` returns correct delta for North vs South revenue
+- [x] `contribution` percentages sum to 100.0 (within floating-point tolerance)
+- [x] `profitability` does not confuse revenue ranking with margin ranking
+- [x] `variance` correctly returns `null` delta for first period row
+- [x] Synthesizer answer for a single-step metrics query contains no numbers not in `ToolResult.data`
+- [x] End-to-end test passes for: "What is revenue by region?" (metrics → synthesizer)
 
 ---
 
@@ -304,86 +304,86 @@ schema, wire the LangGraph node, register in the Capability Registry, update
 **Objective**: Build the full Streamlit chat interface with visible plan trace and
 chart rendering. Add advanced analytical capabilities for statistical investigation.
 
-### Status: 🔲 Not Started
+### Status: ✅ Complete
 
 ### 3A — Streamlit UI
 
-- [ ] Wrap `build_graph(llm)` and `load_dataset()` in `@st.cache_resource`
-- [ ] Initialise `st.session_state["messages"]` and `st.session_state["agent_state"]` at startup
-- [ ] Sidebar: dataset info card (row count, column list, date range) from `get_schema_description()`
-- [ ] Chat panel: render `st.session_state["messages"]` as alternating user/assistant bubbles
-- [ ] `st.chat_input` for new queries
-- [ ] On submit: call `graph.invoke(create_initial_state(query, history))`, display `final_answer`
-- [ ] Loading spinner (`st.spinner`) during graph execution
-- [ ] Persist `messages` list across reruns via `st.session_state`
+- [x] Wrap `build_graph(llm)` and `load_dataset()` in `@st.cache_resource`
+- [x] Initialise `st.session_state["messages"]` and `st.session_state["agent_state"]` at startup
+- [x] Sidebar: dataset info card (row count, column list, date range) from `get_schema_description()`
+- [x] Chat panel: render `st.session_state["messages"]` as alternating user/assistant bubbles
+- [x] `st.chat_input` for new queries
+- [x] On submit: call `graph.invoke(create_initial_state(query, history))`, display `final_answer`
+- [x] Loading spinner (`st.spinner`) during graph execution
+- [x] Persist `messages` list across reruns via `st.session_state`
 
 ### 3B — Execution Plan Trace Panel
 
-- [ ] Two-column layout: chat left, trace right
-- [ ] Render `plan.intent` and `plan.rationale` in the trace panel before tool execution display
-- [ ] Render each `PlanStep` as a numbered item: tool name, description, `depends_on`
-- [ ] Render each `ToolResult` with ✓/✗ indicator, step number, and row count or error message
-- [ ] Render `errors` in `st.error()` if non-empty
-- [ ] If `final_answer` starts with "I'm sorry", apply `st.warning()` styling
+- [x] Two-column layout: chat left, trace right
+- [x] Render `plan.intent` and `plan.rationale` in the trace panel before tool execution display
+- [x] Render each `PlanStep` as a numbered item: tool name, description, `depends_on`
+- [x] Render each `ToolResult` with ✓/✗ indicator, step number, and row count or error message
+- [x] Render `errors` in `st.error()` if non-empty
+- [x] If `final_answer` starts with "I'm sorry", apply `st.warning()` styling
 
 ### 3C — Chart Rendering
 
-- [ ] After each invocation, check `chart_artifacts`
-- [ ] For each figure dict: `st.plotly_chart(go.Figure(fig_dict), use_container_width=True)`
-- [ ] Charts rendered below the assistant message or in the trace panel (decide based on layout testing)
+- [x] After each invocation, check `chart_artifacts`
+- [x] For each figure dict: `st.plotly_chart(go.Figure(fig_dict), use_container_width=True)`
+- [x] Charts rendered below the assistant message or in the trace panel (decide based on layout testing)
 
 ### 3D — Advanced Capabilities
 
 #### `anomaly_detection` capability
 
-- [ ] `AnomalyRequest` Pydantic schema: `metric`, `method` (`iqr` | `zscore`), optional `group_by`, optional `threshold`
-- [ ] `execute_anomaly_detection()`:
+- [x] `AnomalyRequest` Pydantic schema: `metric`, `method` (`iqr` | `zscore`), optional `group_by`, optional `threshold`
+- [x] `execute_anomaly_detection()`:
   - IQR: `PERCENTILE_CONT(0.25)`, `PERCENTILE_CONT(0.75)` → compute `IQR`, flag rows outside `[Q1 - 1.5×IQR, Q3 + 1.5×IQR]`
   - Z-score: `(value - AVG) / STDDEV`, flag where `|z| > threshold`
-- [ ] `anomaly_detection_tool_node`
-- [ ] Register in Capability Registry as `ADVANCED_ANALYSIS`
-- [ ] Add `ANOMALY_DETECTION` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_anomaly_detection.py` — 8+ tests
+- [x] `anomaly_detection_tool_node`
+- [x] Register in Capability Registry as `ADVANCED_ANALYSIS`
+- [x] Add `ANOMALY_DETECTION` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_anomaly_detection.py` — 8+ tests
 
 #### `correlation` capability
 
-- [ ] `CorrelationRequest` Pydantic schema: `field_a`, `field_b`, optional `group_by`, optional `filters`
-- [ ] `execute_correlation()` — `CORR(field_a, field_b)` from DuckDB
-- [ ] Synthesizer prompt must include: "Correlation does not establish causation."
-- [ ] `correlation_tool_node`
-- [ ] Register in Capability Registry as `ADVANCED_ANALYSIS`
-- [ ] Add `CORRELATION` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_correlation.py` — 8+ tests
+- [x] `CorrelationRequest` Pydantic schema: `field_a`, `field_b`, optional `group_by`, optional `filters`
+- [x] `execute_correlation()` — `CORR(field_a, field_b)` from DuckDB
+- [x] Synthesizer prompt must include: "Correlation does not establish causation."
+- [x] `correlation_tool_node`
+- [x] Register in Capability Registry as `ADVANCED_ANALYSIS`
+- [x] Add `CORRELATION` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_correlation.py` — 8+ tests
 
 #### `segmentation` capability
 
-- [ ] `SegmentationRequest` Pydantic schema: `metric`, `dimensions` (list of 2 columns), optional `filters`, optional `limit`
-- [ ] `execute_segmentation()` — multi-column `GROUP BY` (e.g. `Region, Category`)
-- [ ] `segmentation_tool_node`
-- [ ] Register in Capability Registry as `ADVANCED_ANALYSIS`
-- [ ] Add `SEGMENTATION` to `ToolName` enum
-- [ ] Wire node in `agent/graph.py`
-- [ ] `tests/test_segmentation.py` — 8+ tests
+- [x] `SegmentationRequest` Pydantic schema: `metric`, `dimensions` (list of 2 columns), optional `filters`, optional `limit`
+- [x] `execute_segmentation()` — multi-column `GROUP BY` (e.g. `Region, Category`)
+- [x] `segmentation_tool_node`
+- [x] Register in Capability Registry as `ADVANCED_ANALYSIS`
+- [x] Add `SEGMENTATION` to `ToolName` enum
+- [x] Wire node in `agent/graph.py`
+- [x] `tests/test_segmentation.py` — 8+ tests
 
 ### 3E — Error & Edge Case Hardening
 
-- [ ] Empty query: returns user-facing error, not a stack trace
-- [ ] Query with no matching data: tool returns `[]`, synthesizer acknowledges it gracefully
-- [ ] Ambiguous query: planner sets `intent=UNKNOWN`, synthesizer asks for clarification
-- [ ] Malformed `AnalysisPlan` from LLM: `model_validate_json` raises → planner catches → `errors` → `error_handler`
-- [ ] `charts` with no prior data: `ToolResult(success=False, error=...)` rather than exception
+- [x] Empty query: returns user-facing error, not a stack trace
+- [x] Query with no matching data: tool returns `[]`, synthesizer acknowledges it gracefully
+- [x] Ambiguous query: planner sets `intent=UNKNOWN`, synthesizer asks for clarification
+- [x] Malformed `AnalysisPlan` from LLM: `model_validate_json` raises → planner catches → `errors` → `error_handler`
+- [x] `charts` with no prior data: `ToolResult(success=False, error=...)` rather than exception
 
 ### Acceptance Criteria
 
-- [ ] User can type a question and receive a text answer in the chat panel
-- [ ] Execution plan (intent + rationale + steps) appears in the trace panel
-- [ ] Charts render in the UI using `st.plotly_chart`
-- [ ] Conversation history persists across multiple questions in the same session
-- [ ] Page does not crash on invalid query — shows user-facing error
-- [ ] `anomaly_detection`, `correlation`, `segmentation` return correct results on canonical dataset
-- [ ] All new tests pass; total offline test count increases from Phase 2 total
+- [x] User can type a question and receive a text answer in the chat panel
+- [x] Execution plan (intent + rationale + steps) appears in the trace panel
+- [x] Charts render in the UI using `st.plotly_chart`
+- [x] Conversation history persists across multiple questions in the same session
+- [x] Page does not crash on invalid query — shows user-facing error
+- [x] `anomaly_detection`, `correlation`, `segmentation` return correct results on canonical dataset
+- [x] All new tests pass; total offline test count increases from Phase 2 total (136 tests passing)
 
 ---
 
@@ -391,7 +391,7 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 
 **Objective**: Validate end-to-end quality, harden edge cases, and deploy to production.
 
-### Status: 🔲 Not Started
+### Status: 🔲 Next
 
 ### 4A — Evaluation Suite
 
@@ -454,9 +454,9 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 |---|---|---|
 | 0 | Project skeleton, contracts, test harness | ✅ Complete |
 | 1 | Canonical dataset, DuckDB foundation, 4 deterministic tools, 73 tests | ✅ Complete |
-| 2 | Capability Registry, Gemini planner integration, 5 new analytical capabilities, synthesizer grounding | 🔲 Next |
-| 3 | Streamlit UI, plan trace, chart rendering, 3 advanced capabilities | 🔲 Not Started |
-| 4 | Evaluation suite, numerical correctness, deployment | 🔲 Not Started |
+| 2 | Capability Registry, Gemini planner integration, 5 new analytical capabilities, synthesizer grounding | ✅ Complete |
+| 3 | Streamlit UI, plan trace, chart rendering, 3 advanced capabilities | ✅ Complete |
+| 4 | Evaluation suite, numerical correctness, deployment | 🔲 Next |
 
 ---
 
@@ -468,14 +468,14 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 | `metrics` | CORE_ANALYSIS | 1 | ✅ Complete |
 | `trends` | CORE_ANALYSIS | 1 | ✅ Complete |
 | `charts` | PRESENTATION | 1 | ✅ Complete |
-| `data_profile` | DATA_ACCESS | 2 | 🔲 Not Started |
-| `compare` | CORE_ANALYSIS | 2 | 🔲 Not Started |
-| `contribution` | CORE_ANALYSIS | 2 | 🔲 Not Started |
-| `profitability` | CORE_ANALYSIS | 2 | 🔲 Not Started |
-| `variance` | CORE_ANALYSIS | 2 | 🔲 Not Started |
-| `anomaly_detection` | ADVANCED | 3 | 🔲 Not Started |
-| `correlation` | ADVANCED | 3 | 🔲 Not Started |
-| `segmentation` | ADVANCED | 3 | 🔲 Not Started |
+| `data_profile` | DATA_ACCESS | 2 | ✅ Complete |
+| `compare` | CORE_ANALYSIS | 2 | ✅ Complete |
+| `contribution` | CORE_ANALYSIS | 2 | ✅ Complete |
+| `profitability` | CORE_ANALYSIS | 2 | ✅ Complete |
+| `variance` | CORE_ANALYSIS | 2 | ✅ Complete |
+| `anomaly_detection` | ADVANCED | 3 | ✅ Complete |
+| `correlation` | ADVANCED | 3 | ✅ Complete |
+| `segmentation` | ADVANCED | 3 | ✅ Complete |
 
 ---
 

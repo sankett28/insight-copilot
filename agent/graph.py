@@ -148,6 +148,7 @@ def build_graph(llm: BaseLLM) -> StateGraph:
         {
             NODE_DATA_QUERY: NODE_DATA_QUERY,
             NODE_DATA_PROFILE: NODE_DATA_PROFILE,
+            NODE_DATA_CLEAN: NODE_DATA_CLEAN,
             NODE_METRICS: NODE_METRICS,
             NODE_TRENDS: NODE_TRENDS,
             NODE_COMPARE: NODE_COMPARE,

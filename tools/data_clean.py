@@ -81,7 +81,10 @@ def data_clean_tool_node(state: AgentState) -> dict:
         return {"tool_results": existing_results}
 
 
-def execute_data_clean(req: DataCleanRequest) -> dict[str, Any]:
+def execute_data_clean(
+    req: DataCleanRequest,
+    conn: duckdb.DuckDBPyConnection | None = None,
+) -> dict[str, Any]:
     """Execute data cleaning transformations on DuckDB and return audit metrics."""
-    conn = get_connection()
-    return apply_cleaning_to_duckdb(conn, req)
+    active_conn = conn if conn is not None else get_connection()
+    return apply_cleaning_to_duckdb(active_conn, req)

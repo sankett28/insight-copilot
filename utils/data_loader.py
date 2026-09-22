@@ -75,8 +75,24 @@ def ensure_parquet_dataset(force: bool = False) -> Path:
     return PARQUET_PATH
 
 
+def create_session_connection() -> duckdb.DuckDBPyConnection:
+    """Create and return an independent, session-isolated DuckDB in-process connection.
+
+    Lifecycle & Safety Architecture:
+        1. 'raw_dataset' (Bronze View): Read-only mirror pointing directly to canonical Parquet.
+        2. 'dataset' (Silver View): Active analytical view queryable and transformable within this session.
+    """
+    parquet_file = get_dataset_path()
+    conn = duckdb.connect(database=":memory:")
+    escaped_path = str(parquet_file.as_posix())
+    conn.execute(f"CREATE VIEW raw_dataset AS SELECT * FROM read_parquet('{escaped_path}')")
+    conn.execute("CREATE VIEW dataset AS SELECT * FROM raw_dataset")
+    logger.info("Created new session-isolated DuckDB connection with 'raw_dataset' and 'dataset' views.")
+    return conn
+
+
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Return the shared DuckDB in-process connection with 'raw_dataset' and 'dataset' registered.
+    """Return the shared/default DuckDB in-process connection with 'raw_dataset' and 'dataset' registered.
 
     Lifecycle & Safety Rationale:
         DuckDB in-process in-memory connection `:memory:` maintains:
@@ -86,22 +102,16 @@ def get_connection() -> duckdb.DuckDBPyConnection:
     global _connection  # noqa: PLW0603
 
     if _connection is None:
-        parquet_file = get_dataset_path()
-        conn = duckdb.connect(database=":memory:")
-        # Escape path safely for DuckDB SQL
-        escaped_path = str(parquet_file.as_posix())
-        conn.execute(f"CREATE VIEW raw_dataset AS SELECT * FROM read_parquet('{escaped_path}')")
-        conn.execute("CREATE VIEW dataset AS SELECT * FROM raw_dataset")
-        _connection = conn
-        logger.info("Initialised DuckDB connection and registered views 'raw_dataset' and 'dataset'.")
+        _connection = create_session_connection()
+        logger.info("Initialised default DuckDB connection.")
 
     return _connection
 
 
-def reset_to_raw_dataset() -> None:
-    """Reset the active 'dataset' view to match the immutable 'raw_dataset'."""
-    conn = get_connection()
-    conn.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM raw_dataset")
+def reset_to_raw_dataset(conn: duckdb.DuckDBPyConnection | None = None) -> None:
+    """Reset the active 'dataset' view to match the immutable 'raw_dataset' on the specified or default connection."""
+    target_conn = conn if conn is not None else get_connection()
+    target_conn.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM raw_dataset")
     logger.info("Reset active 'dataset' view to raw_dataset.")
 
 

@@ -55,11 +55,17 @@ def build_planner_node(llm: BaseLLM):
 
         # Build message list for LLM call with dataset schema context
         messages = _build_planner_messages(query, history)
+        run_id = state.get("run_id", "turn")
+        telemetry = dict(state.get("telemetry", {}))
+        timings = dict(telemetry.get("timings", {}))
+
+        import time
+        start_t = time.perf_counter()
 
         try:
             plan: AnalysisPlan = llm.structured_chat(messages, AnalysisPlan)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Planner LLM execution failed: %s", exc)
+            logger.exception("[%s] Planner LLM execution failed: %s", run_id, exc)
             return {
                 "intent": Intent.UNKNOWN.value,
                 "plan": None,
@@ -68,20 +74,27 @@ def build_planner_node(llm: BaseLLM):
                 "errors": [f"Planner LLM failed to produce a structured plan: {exc}"],
             }
 
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
+        timings["planner_ms"] = duration_ms
+        telemetry["timings"] = timings
+
         # Pre-execution Plan Validation Boundary
         validation = validate_analysis_plan(plan)
         if not validation.is_valid:
-            logger.error("Generated plan failed validation: %s", validation.errors)
+            logger.error("[%s] Generated plan failed validation: %s", run_id, validation.errors)
             return {
                 "intent": plan.intent.value,
                 "plan": plan,
                 "selected_tools": plan.selected_tools,
                 "current_step": 0,
+                "telemetry": telemetry,
                 "errors": validation.errors,
             }
 
         logger.info(
-            "Plan produced and validated | intent=%s | steps=%d | tools=%s",
+            "[%s] Plan produced and validated in %.2fms | intent=%s | steps=%d | tools=%s",
+            run_id,
+            duration_ms,
             plan.intent,
             len(plan.steps),
             [t.value for t in plan.selected_tools],
@@ -92,9 +105,11 @@ def build_planner_node(llm: BaseLLM):
             "plan": plan,
             "selected_tools": plan.selected_tools,
             "current_step": 0,
+            "telemetry": telemetry,
         }
 
     return planner_node
+
 
 
 def _build_planner_messages(

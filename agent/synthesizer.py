@@ -52,6 +52,9 @@ def build_synthesizer_node(llm: BaseLLM):
         query: str = state.get("query", "")
         tool_results: list[ToolResult] = state.get("tool_results", [])
         errors: list[str] = state.get("errors", [])
+        run_id: str = state.get("run_id", "turn")
+        telemetry = dict(state.get("telemetry", {}))
+        timings = dict(telemetry.get("timings", {}))
 
         if errors and not tool_results:
             # Nothing useful came back; produce a safe error response.
@@ -60,23 +63,35 @@ def build_synthesizer_node(llm: BaseLLM):
                 + "; ".join(errors)
                 + ". Please try rephrasing your question."
             )
-            return _build_output(answer, state.get("messages", []))
+            return _build_output(answer, state.get("messages", []), telemetry=telemetry)
 
         messages = _build_synthesizer_messages(query, tool_results, state)
+
+        import time
+        start_t = time.perf_counter()
 
         try:
             response = llm.chat(messages, temperature=0.3)
             answer = response.content
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Synthesizer LLM call failed: %s", exc)
+            logger.exception("[%s] Synthesizer LLM call failed: %s", run_id, exc)
             answer = (
                 "I was unable to generate a response due to an internal error. "
                 "The raw tool results are available in the execution trace."
             )
 
-        return _build_output(answer, state.get("messages", []))
+        duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
+        timings["synthesizer_ms"] = duration_ms
+        if "start_time" in telemetry:
+            timings["total_turn_ms"] = round((time.time() - telemetry["start_time"]) * 1000.0, 2)
+        telemetry["timings"] = timings
+
+        logger.info("[%s] Synthesis completed in %.2fms", run_id, duration_ms)
+
+        return _build_output(answer, state.get("messages", []), telemetry=telemetry)
 
     return synthesizer_node
+
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +182,22 @@ def _format_tool_results(tool_results: list[ToolResult]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_output(answer: str, existing_messages: list[Message] | None = None) -> dict[str, Any]:
+def _build_output(
+    answer: str,
+    existing_messages: list[Message] | None = None,
+    telemetry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Package the synthesizer output into a state-patch dict preserving conversation history."""
     assistant_message = Message(role=Role.ASSISTANT, content=answer)
     messages = list(existing_messages or [])
     messages.append(assistant_message)
-    return {
+    patch: dict[str, Any] = {
         "final_answer": answer,
         "messages": messages,
     }
+    if telemetry is not None:
+        patch["telemetry"] = telemetry
+    return patch
+
 
 

@@ -1,7 +1,7 @@
 """
 tests/test_gemini_llm.py
 ------------------------
-Unit tests for the GeminiLLM provider with mocked Google GenAI client.
+Unit tests for the GeminiLLM provider with mocked google-genai client.
 """
 
 from unittest.mock import MagicMock, patch
@@ -14,25 +14,23 @@ from models.schemas import AnalysisPlan, Intent
 @pytest.fixture
 def mock_genai():
     with patch("llm.gemini.genai") as mock_gen:
-        mock_model = MagicMock()
-        mock_gen.GenerativeModel.return_value = mock_model
-        yield mock_gen, mock_model
+        mock_client = MagicMock()
+        mock_gen.Client.return_value = mock_client
+        yield mock_gen, mock_client
 
 
 def test_gemini_initialization_with_key(mock_genai):
-    mock_gen, _ = mock_genai
-    llm = GeminiLLM(api_key="test-api-key", model="gemini-2.0-flash")
-    mock_gen.configure.assert_called_once_with(api_key="test-api-key")
-    assert llm.model_name == "gemini-2.0-flash"
+    mock_gen, mock_client = mock_genai
+    llm = GeminiLLM(api_key="test-api-key", model="gemini-2.5-flash")
+    mock_gen.Client.assert_called_once_with(api_key="test-api-key")
+    assert llm.model_name == "gemini-2.5-flash"
 
 
 def test_gemini_chat_session_flow(mock_genai):
-    _, mock_model = mock_genai
-    mock_chat = MagicMock()
+    _, mock_client = mock_genai
     mock_response = MagicMock()
     mock_response.text = "Hello! I am your analyst."
-    mock_chat.send_message.return_value = mock_response
-    mock_model.start_chat.return_value = mock_chat
+    mock_client.models.generate_content.return_value = mock_response
 
     llm = GeminiLLM(api_key="test-api-key")
     messages = [
@@ -42,12 +40,11 @@ def test_gemini_chat_session_flow(mock_genai):
 
     res = llm.chat(messages, temperature=0.2)
     assert res.content == "Hello! I am your analyst."
-    mock_model.start_chat.assert_called_once()
-    mock_chat.send_message.assert_called_once()
+    mock_client.models.generate_content.assert_called_once()
 
 
 def test_gemini_structured_chat(mock_genai):
-    _, mock_model = mock_genai
+    _, mock_client = mock_genai
     mock_response = MagicMock()
     mock_response.text = """
     {
@@ -64,7 +61,7 @@ def test_gemini_structured_chat(mock_genai):
         "selected_tools": ["metrics"]
     }
     """
-    mock_model.generate_content.return_value = mock_response
+    mock_client.models.generate_content.return_value = mock_response
 
     llm = GeminiLLM(api_key="test-api-key")
     messages = [{"role": "user", "content": "Total revenue?"}]

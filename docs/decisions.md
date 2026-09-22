@@ -477,3 +477,55 @@ Disproportionate infrastructure for an assignment. Rejected.
 - **Negative**: Importing from `utils.prompts` creates a dependency that must
   not create circular imports. Module dependency direction is documented in
   `CONTRIBUTING.md`: `models → llm → utils → tools → agent → app`.
+
+---
+
+## ADR-009 — Pre-Execution Plan Validation & Graph Robustness Boundary
+
+**Date**: 2026-09-22
+**Status**: Accepted
+
+### Context
+
+When the LLM planner produces a structured `AnalysisPlan`, invalid parameters, out-of-order step sequences, nonexistent tools, or cyclical/forward step dependencies could cause downstream runtime crashes during tool execution. Relying on tools to fail individually at runtime creates noisy errors, leaks internal exceptions to the user, and wastes compute cycles.
+
+### Decision
+
+Implement a centralized pre-execution validation boundary (`agent/validator.py`) executing before the LangGraph router dispatches any step.
+The validator strictly enforces:
+1. Contiguous 1..N step numbering with zero duplicates.
+2. Tool registration within the authoritative `Capability Registry`.
+3. Parameter conformance against each tool's Pydantic `request_schema`.
+4. Dependency DAG acyclicity (`dep < step_number`, no self-dependencies, no forward references).
+5. Router error redirection: Invalid plans bypass tool dispatch and route directly to a structured `_error_handler_node`.
+
+### Consequences
+
+- **Positive**: 100% parameter validity guaranteed before entering tool execution loops.
+- **Positive**: Malformed LLM outputs receive clean, actionable user diagnostic guidance rather than unhandled Python exceptions.
+- **Positive**: Simplifies individual tool implementations, as parameter contracts are validated before dispatch.
+
+---
+
+## ADR-010 — Modern `google-genai` SDK Migration & Structured Latency Telemetry
+
+**Date**: 2026-09-22
+**Status**: Accepted
+
+### Context
+
+The legacy `google-generativeai` package has reached end-of-support and produces deprecated `FutureWarning` alerts during execution. Furthermore, tracking turn latency and millisecond-level execution bottlenecks (Planner LLM vs DuckDB Tool SQL vs Synthesizer LLM) is essential for production operational visibility.
+
+### Decision
+
+1. Migrate `llm/gemini.py` to the modern Google GenAI SDK (`google-genai` library), utilizing native `response_schema` support with Pydantic models and elimination of all deprecation warnings.
+2. Implement structured telemetry logging across `AgentState`:
+   - Every graph invocation turn generates a unique `run_id` (UUID4).
+   - Planner LLM duration, individual tool execution durations, synthesizer duration, and total turn latency are logged and surfaced in the Streamlit UI trace panel.
+
+### Consequences
+
+- **Positive**: Zero deprecation warnings in test suite and runtime logs.
+- **Positive**: Full operational telemetry across every analytical turn.
+- **Positive**: Future-proof compatibility with modern Google Gemini models (`gemini-2.5-flash`).
+

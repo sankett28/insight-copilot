@@ -60,10 +60,17 @@ class AgentState(TypedDict, total=False):
     errors: list[str]
     """Accumulated error messages from any node or tool during this turn."""
 
+    run_id: str
+    """Unique identifier for this execution turn (UUID4)."""
+
+    telemetry: dict[str, Any]
+    """Structured telemetry metadata capturing execution durations and timings."""
+
 
 def create_initial_state(
     query: str,
     history: list[Message] | None = None,
+    run_id: str | None = None,
 ) -> AgentState:
     """Construct a clean AgentState for a new user query turn.
 
@@ -74,16 +81,27 @@ def create_initial_state(
     Args:
         query:   The new natural-language query from the user.
         history: Previous conversation messages (if any).
+        run_id:  Optional execution run UUID string.
 
     Returns:
         A fresh AgentState dict with clean per-turn fields.
     """
+    import time
+    import uuid
+
     messages: list[Message] = list(history) if history else []
     messages.append(Message(role=Role.USER, content=query))
+    turn_run_id = run_id or str(uuid.uuid4())
 
     return AgentState(
         messages=messages,
         query=query,
+        run_id=turn_run_id,
+        telemetry={
+            "run_id": turn_run_id,
+            "start_time": time.time(),
+            "timings": {},
+        },
         intent="",
         plan=None,
         selected_tools=[],
@@ -93,4 +111,5 @@ def create_initial_state(
         final_answer=None,
         errors=[],
     )
+
 

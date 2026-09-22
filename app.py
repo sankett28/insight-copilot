@@ -78,6 +78,7 @@ st.session_state.setdefault("turn_artifacts", {})
 st.session_state.setdefault("current_plan", None)
 st.session_state.setdefault("current_tool_results", [])
 st.session_state.setdefault("current_errors", [])
+st.session_state.setdefault("current_telemetry", {})
 st.session_state.setdefault("pending_query", None)
 if "db_conn" not in st.session_state:
     st.session_state["db_conn"] = create_session_connection()
@@ -93,8 +94,9 @@ with st.sidebar:
     st.divider()
 
     # Active Model Badge
-    active_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    active_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     st.markdown(f"🤖 **Active Model**: `{active_model}`")
+
 
     st.divider()
 
@@ -146,8 +148,10 @@ with st.sidebar:
         st.session_state["current_plan"] = None
         st.session_state["current_tool_results"] = []
         st.session_state["current_errors"] = []
+        st.session_state["current_telemetry"] = {}
         st.session_state["pending_query"] = None
         st.rerun()
+
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +338,7 @@ with col_chat:
                 st.session_state["current_plan"] = final_state.get("plan")
                 st.session_state["current_tool_results"] = final_state.get("tool_results", [])
                 st.session_state["current_errors"] = final_state.get("errors", [])
+                st.session_state["current_telemetry"] = final_state.get("telemetry", {})
 
                 # Store any generated charts linked to the latest assistant message index
                 latest_assistant_idx = len(st.session_state["messages"]) - 1
@@ -355,6 +360,17 @@ with col_trace:
     current_errors = st.session_state.get("current_errors", [])
     current_plan = st.session_state.get("current_plan")
     current_tool_results = st.session_state.get("current_tool_results", [])
+    current_telemetry = st.session_state.get("current_telemetry", {})
+
+    # Telemetry card if available
+    if current_telemetry and "timings" in current_telemetry:
+        timings = current_telemetry["timings"]
+        run_id_short = str(current_telemetry.get("run_id", "turn"))[:8]
+        with st.expander(f"⏱️ Turn Telemetry (`{run_id_short}`)", expanded=False):
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Planner", f"{timings.get('planner_ms', 0):.1f} ms")
+            c2.metric("Synthesizer", f"{timings.get('synthesizer_ms', 0):.1f} ms")
+            c3.metric("Total Turn", f"{timings.get('total_turn_ms', 0):.1f} ms")
 
     # Error Alert if turn encountered errors
     if current_errors:
@@ -387,9 +403,11 @@ with col_trace:
         st.markdown("**Deterministic Tool Outputs**:")
         for tr in current_tool_results:
             icon = "✅" if tr.success else "❌"
-            header = f"{icon} Step {tr.step_number}: `{tr.tool.value}`"
+            provenance = f" | {tr.execution_time_ms}ms" if tr.execution_time_ms is not None else ""
+            header = f"{icon} Step {tr.step_number}: `{tr.tool.value}`{provenance}"
             with st.expander(header, expanded=tr.success):
                 _render_tool_result_ui(tr)
+
 
 
 

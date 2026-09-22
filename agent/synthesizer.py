@@ -104,32 +104,66 @@ def _build_synthesizer_messages(
         f"User question: {query}\n\n"
         f"{plan_summary}\n\n"
         f"Tool results:\n{results_text}\n\n"
-        "Please synthesise these results into a concise analyst-style answer. "
-        "Use only the numbers from the tool results — do not invent any data."
+        "Please synthesise these results into a clear, executive-level narrative. "
+        "Strictly cite source steps e.g. [Step 1], [Step 2] for all numbers, totals, percentages, and metrics. "
+        "Use only the verified numbers from the tool results — do not invent or extrapolate data."
     )
 
-    return [
-        {"role": "system", "content": SYNTHESIZER_SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
+    messages_payload: list[dict[str, str]] = [
+        {"role": "system", "content": SYNTHESIZER_SYSTEM_PROMPT}
     ]
+
+    # Include recent conversation history (bounded to last 10 messages)
+    raw_history = state.get("messages", [])
+    if raw_history:
+        # Prior messages excluding current query if it is the last item
+        prior_messages = raw_history[:-1] if len(raw_history) > 1 else []
+        for msg in prior_messages[-10:]:
+            role_str = (
+                msg.role.value
+                if hasattr(msg, "role") and hasattr(msg.role, "value")
+                else str(getattr(msg, "role", "user"))
+            )
+            content_str = getattr(msg, "content", "")
+            if role_str in ("user", "assistant"):
+                messages_payload.append({"role": role_str, "content": content_str})
+
+    messages_payload.append({"role": "user", "content": user_content})
+    return messages_payload
 
 
 def _format_tool_results(tool_results: list[ToolResult]) -> str:
-    """Serialise tool results to a human-readable string for the prompt."""
+    """Serialise tool results to a human-readable string for the prompt.
+
+    Includes step header, provenance (source_view, row_count, execution_time_ms),
+    and truncates large list results (>15 rows) to keep prompt token size bounded.
+    """
     if not tool_results:
         return "No tool results available."
 
     parts: list[str] = []
     for result in tool_results:
         status = "✓" if result.success else "✗"
+        
+        data = result.data
+        truncation_note = ""
+        if isinstance(data, list) and len(data) > 15:
+            total_rows = len(data)
+            data = data[:15]
+            truncation_note = f"\n(Showing first 15 of {total_rows} rows)"
+
         data_repr = (
-            json.dumps(result.data, default=str, indent=2)
-            if result.data is not None
+            json.dumps(data, default=str, indent=2)
+            if data is not None
             else "null"
         )
-        parts.append(
-            f"[Step {result.step_number} | {result.tool.value}] {status}\n{data_repr}"
+        
+        provenance = (
+            f"(source: {result.source_view}, rows: {result.row_count}, time: {result.execution_time_ms}ms)"
         )
+        header = f"[Step {result.step_number} | {result.tool.value}] {status} {provenance}"
+        parts.append(f"{header}\n{data_repr}{truncation_note}")
+
     return "\n\n".join(parts)
 
 
@@ -142,4 +176,5 @@ def _build_output(answer: str, existing_messages: list[Message] | None = None) -
         "final_answer": answer,
         "messages": messages,
     }
+
 

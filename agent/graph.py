@@ -33,6 +33,7 @@ from agent.router import ERROR_NODE, SYNTHESIZER_NODE, advance_step, router_node
 from agent.state import AgentState
 from agent.synthesizer import build_synthesizer_node
 from llm.base import BaseLLM
+from models.schemas import Message, Role
 from tools.anomaly_detection import anomaly_detection_tool_node
 from tools.charts import charts_tool_node
 from tools.compare import compare_tool_node
@@ -185,16 +186,28 @@ def _passthrough_node(state: AgentState) -> dict:
 def _error_handler_node(state: AgentState) -> dict:
     """Terminal error-handler node.
 
-    Currently logs errors and returns an empty dict so the graph can reach END.
-    In a future iteration this could produce a user-facing error message.
+    Formats a clear user-facing error response explaining the issue and
+    appends the assistant message to conversation history.
     """
     errors = state.get("errors", [])
     logger.error("Graph terminated with errors: %s", errors)
-    if not state.get("final_answer"):
-        return {
-            "final_answer": (
-                "I'm sorry, I encountered an error and could not complete your request. "
-                + " | ".join(errors)
-            )
-        }
-    return {}
+    existing_messages = list(state.get("messages", []))
+
+    error_details = "\n".join([f"- {err}" for err in errors]) if errors else "- Unknown execution failure."
+    final_answer = (
+        "### ⚠️ Analytical Request Notice\n\n"
+        "I was unable to complete the analysis due to the following issue(s):\n\n"
+        f"{error_details}\n\n"
+        "**Suggested Next Steps**:\n"
+        "1. Check if the specified column names or dimension values match the dataset schema.\n"
+        "2. Try rephrasing your question or simplifying the request.\n"
+        "3. Ask for a `data_profile` to inspect valid column names and categorical values."
+    )
+
+    assistant_message = Message(role=Role.ASSISTANT, content=final_answer)
+    existing_messages.append(assistant_message)
+
+    return {
+        "final_answer": final_answer,
+        "messages": existing_messages,
+    }

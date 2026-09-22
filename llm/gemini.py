@@ -91,11 +91,13 @@ class GeminiLLM(BaseLLM):
             content = msg.get("content", "")
             history_contents.append({"role": role, "parts": [content]})
 
+        print(f"\n[Gemini LLM] Sending Chat Request ({self._model_name}, temp={temperature})...")
         chat_session = self._client.start_chat(history=history_contents)
         response = chat_session.send_message(
             last_message.get("content", ""),
             generation_config=gen_config,
         )
+        print(f"[Gemini LLM] Chat Response Received ({len(response.text)} chars)")
         return LLMResponse(content=response.text, raw=response)
 
     def structured_chat(
@@ -122,13 +124,16 @@ class GeminiLLM(BaseLLM):
             f"{json.dumps(schema.model_json_schema(), indent=2)}"
         )
 
+        print(f"\n[Gemini LLM] Sending Structured Plan Request ({self._model_name}, schema={schema.__name__})...")
         response = self._client.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(**generation_config),
         )
 
         raw_json = response.text.strip()
+        print(f"[Gemini LLM] Structured Response Received ({len(raw_json)} chars):\n{raw_json}")
         return schema.model_validate_json(raw_json)
+
 
 
 # ---------------------------------------------------------------------------

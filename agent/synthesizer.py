@@ -60,7 +60,7 @@ def build_synthesizer_node(llm: BaseLLM):
                 + "; ".join(errors)
                 + ". Please try rephrasing your question."
             )
-            return _build_output(answer, query)
+            return _build_output(answer, state.get("messages", []))
 
         messages = _build_synthesizer_messages(query, tool_results, state)
 
@@ -74,7 +74,7 @@ def build_synthesizer_node(llm: BaseLLM):
                 "The raw tool results are available in the execution trace."
             )
 
-        return _build_output(answer, query)
+        return _build_output(answer, state.get("messages", []))
 
     return synthesizer_node
 
@@ -133,10 +133,13 @@ def _format_tool_results(tool_results: list[ToolResult]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_output(answer: str, query: str) -> dict[str, Any]:
-    """Package the synthesizer output into a state-patch dict."""
+def _build_output(answer: str, existing_messages: list[Message] | None = None) -> dict[str, Any]:
+    """Package the synthesizer output into a state-patch dict preserving conversation history."""
     assistant_message = Message(role=Role.ASSISTANT, content=answer)
+    messages = list(existing_messages or [])
+    messages.append(assistant_message)
     return {
         "final_answer": answer,
-        "messages": [assistant_message],
+        "messages": messages,
     }
+

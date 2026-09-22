@@ -28,10 +28,11 @@ Rules:
 3. Select only the capabilities genuinely needed. Do not add unnecessary steps.
 4. Construct typed 'parameters' for each PlanStep matching the target capability's input schema.
 5. If step B depends on outputs from step A (e.g. charts plotting data), set depends_on=[step_number_of_A].
-6. If the intent is unclear, set intent to "unknown" and rationale to an explanation.
+6. If the user's question is informational, conversational, or asks about system capabilities (e.g. 'what charts can you show me?'), set intent to "unknown", leave steps as [], and explain in rationale.
 7. NEVER invent dataset values. You are only deciding which capabilities to run.
 8. Do NOT include chain-of-thought. Only the rationale field is exposed to users.
 """
+
 
 # ---------------------------------------------------------------------------
 # Synthesizer

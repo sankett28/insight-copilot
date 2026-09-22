@@ -568,14 +568,14 @@ class AnalysisPlan(BaseModel):
         description="Short (≤3 sentences) plain-English explanation of why this plan was chosen.",
     )
     steps: list[PlanStep] = Field(
-        ...,
-        min_length=1,
-        description="Ordered list of execution steps.",
+        default_factory=list,
+        description="Ordered list of execution steps (empty if conversational or informational).",
     )
     selected_tools: list[ToolName] = Field(
-        ...,
+        default_factory=list,
         description="Flat list of tools referenced by this plan.",
     )
+
 
 
 # ---------------------------------------------------------------------------

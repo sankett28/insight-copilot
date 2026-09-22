@@ -140,3 +140,21 @@ def test_advance_step():
     state: AgentState = {"current_step": 0}
     res = advance_step(state)
     assert res == {"current_step": 1}
+
+
+def test_router_empty_steps_routes_to_synthesizer():
+    """Verify that a plan with empty steps (conversational / meta) routes to synthesizer."""
+    plan = AnalysisPlan(
+        intent=Intent.UNKNOWN,
+        rationale="User asked about general capabilities.",
+        steps=[],
+        selected_tools=[],
+    )
+    state: AgentState = {
+        "plan": plan,
+        "selected_tools": [],
+        "current_step": 0,
+        "errors": [],
+    }
+    assert router_node(state) == SYNTHESIZER_NODE
+

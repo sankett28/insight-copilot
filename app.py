@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 from agent.graph import build_graph
 from agent.state import create_initial_state
-from llm.factory import get_llm
+from llm.factory import create_llm
 from models.schemas import Message, Role
 from utils.data_loader import get_schema_description, validate_dataset
 
@@ -57,7 +57,7 @@ def init_data_layer():
 @st.cache_resource(show_spinner=False)
 def get_compiled_agent():
     """Instantiate and compile the LangGraph StateGraph."""
-    llm = get_llm()
+    llm = create_llm()
     return build_graph(llm)
 
 

@@ -54,3 +54,8 @@ def create_llm(
         f"Unknown LLM provider: '{resolved}'. "
         f"Supported providers: {[p.value for p in LLMProvider]}"
     )
+
+
+# Alias for backward compatibility
+get_llm = create_llm
+

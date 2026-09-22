@@ -38,6 +38,7 @@ from tools.charts import charts_tool_node
 from tools.compare import compare_tool_node
 from tools.contribution import contribution_tool_node
 from tools.correlation import correlation_tool_node
+from tools.data_clean import data_clean_tool_node
 from tools.data_profile import data_profile_tool_node
 from tools.data_query import data_query_tool_node
 from tools.metrics import metrics_tool_node
@@ -54,6 +55,7 @@ NODE_ROUTER = "router"
 NODE_STEP_ADVANCE = "step_advance"
 NODE_DATA_QUERY = "data_query"
 NODE_DATA_PROFILE = "data_profile"
+NODE_DATA_CLEAN = "data_clean"
 NODE_METRICS = "metrics"
 NODE_TRENDS = "trends"
 NODE_COMPARE = "compare"
@@ -71,6 +73,7 @@ NODE_ERROR = ERROR_NODE
 _TOOL_NODES: list[str] = [
     NODE_DATA_QUERY,
     NODE_DATA_PROFILE,
+    NODE_DATA_CLEAN,
     NODE_METRICS,
     NODE_TRENDS,
     NODE_COMPARE,
@@ -82,6 +85,7 @@ _TOOL_NODES: list[str] = [
     NODE_SEGMENTATION,
     NODE_CHARTS,
 ]
+
 
 
 def build_graph(llm: BaseLLM) -> StateGraph:
@@ -104,7 +108,9 @@ def build_graph(llm: BaseLLM) -> StateGraph:
     graph.add_node(NODE_STEP_ADVANCE, advance_step)
     graph.add_node(NODE_DATA_QUERY, data_query_tool_node)
     graph.add_node(NODE_DATA_PROFILE, data_profile_tool_node)
+    graph.add_node(NODE_DATA_CLEAN, data_clean_tool_node)
     graph.add_node(NODE_METRICS, metrics_tool_node)
+
     graph.add_node(NODE_TRENDS, trends_tool_node)
     graph.add_node(NODE_COMPARE, compare_tool_node)
     graph.add_node(NODE_CONTRIBUTION, contribution_tool_node)

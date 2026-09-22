@@ -76,13 +76,12 @@ def ensure_parquet_dataset(force: bool = False) -> Path:
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Return the shared DuckDB in-process connection with 'dataset' registered as a view.
+    """Return the shared DuckDB in-process connection with 'raw_dataset' and 'dataset' registered.
 
     Lifecycle & Safety Rationale:
-        DuckDB in-process in-memory connection `:memory:` with an immutable view over
-        the canonical Parquet file (`sales_dataset.parquet`) is read-only for analytical
-        tools. It eliminates connection setup overhead across repeated queries, Streamlit
-        reruns, and test executions while guaranteeing thread-safe concurrent reads.
+        DuckDB in-process in-memory connection `:memory:` maintains:
+        1. 'raw_dataset' (Bronze View): Immutable mirror of the source Parquet file.
+        2. 'dataset' (Silver View): Active analytical view queryable by all tools.
     """
     global _connection  # noqa: PLW0603
 
@@ -91,11 +90,19 @@ def get_connection() -> duckdb.DuckDBPyConnection:
         conn = duckdb.connect(database=":memory:")
         # Escape path safely for DuckDB SQL
         escaped_path = str(parquet_file.as_posix())
-        conn.execute(f"CREATE VIEW dataset AS SELECT * FROM read_parquet('{escaped_path}')")
+        conn.execute(f"CREATE VIEW raw_dataset AS SELECT * FROM read_parquet('{escaped_path}')")
+        conn.execute("CREATE VIEW dataset AS SELECT * FROM raw_dataset")
         _connection = conn
-        logger.info("Initialised DuckDB connection and registered view 'dataset'.")
+        logger.info("Initialised DuckDB connection and registered views 'raw_dataset' and 'dataset'.")
 
     return _connection
+
+
+def reset_to_raw_dataset() -> None:
+    """Reset the active 'dataset' view to match the immutable 'raw_dataset'."""
+    conn = get_connection()
+    conn.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM raw_dataset")
+    logger.info("Reset active 'dataset' view to raw_dataset.")
 
 
 def reset_connection() -> None:
@@ -108,6 +115,7 @@ def reset_connection() -> None:
             pass
         _connection = None
     _schema_cache = None
+
 
 
 

@@ -2,17 +2,20 @@
 ------
 Fixed-Height Analytical Workspace for Insight Copilot.
 
-Architecture:
-  - Fixed-height application viewport with independent scrolling regions.
-  - Left Center: Chat Workspace with independently scrolling message history & pinned bottom input.
-  - Right: Analysis Inspector with independent scrolling for Status, Plan, Tool Outputs, SQL, and Telemetry.
-  - Left Sidebar: Compact dataset health, metadata inspector, and session controls.
+Features:
+  - Responsive fixed-height layout with independent scroll regions.
+  - Hidden top header to prevent text clipping.
+  - Pinned and fully visible chat input box across all viewport heights.
+  - Smooth typewriter response streaming for assistant answers.
+  - Independent Analysis Inspector for real-time plan, tool output, and SQL auditing.
+  - Restrained dark analytical workspace styling.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,58 +50,88 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS for Fixed-Height Analytical Workspace Layout
+# Custom CSS for Responsive, Clean Analytical Layout
 # ---------------------------------------------------------------------------
 
 st.markdown(
     """
     <style>
-    /* Prevent full-window body scroll */
+    /* 1. Hide default Streamlit top header & footer to prevent text clipping */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    #MainMenu, footer {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* 2. Main Viewport & Container */
     html, body {
         overflow: hidden !important;
         height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .stApp {
+        background-color: #0b0f19 !important;
+        color: #f1f5f9 !important;
     }
 
     .block-container {
-        padding-top: 1.25rem !important;
-        padding-bottom: 0.5rem !important;
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
+        padding-top: 1rem !important;
+        padding-bottom: 0.25rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
         max-width: 100% !important;
-        height: calc(100vh - 1.5rem) !important;
-        overflow: hidden !important;
+        height: 100vh !important;
+        box-sizing: border-box !important;
     }
 
-    /* Modern restrained styling */
-    .stApp {
-        background-color: #0f172a;
-        color: #f8fafc;
-    }
-
-    /* Sidebar restrained styling */
+    /* 3. Sidebar styling */
     [data-testid="stSidebar"] {
-        background-color: #0b1120 !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        background-color: #070a12 !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
     }
 
-    /* Inspector header & cards */
+    /* 4. Streamlit containers styling */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border-color: rgba(255, 255, 255, 0.07) !important;
+        background-color: rgba(15, 23, 42, 0.4) !important;
+        border-radius: 8px !important;
+    }
+
+    /* 5. Chat Input Styling */
+    [data-testid="stChatInput"] {
+        padding-top: 0.4rem !important;
+        padding-bottom: 0.2rem !important;
+    }
+    [data-testid="stChatInput"] textarea {
+        background-color: #131b2e !important;
+        color: #f8fafc !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 8px !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* 6. Inspector Header & Status Badges */
     .inspector-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-bottom: 0.4rem;
-        margin-bottom: 0.6rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 0.5rem;
+        margin-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 0.4rem;
-        font-size: 0.8rem;
+        gap: 0.35rem;
+        font-size: 0.78rem;
         font-weight: 600;
         letter-spacing: 0.03em;
-        padding: 0.2rem 0.6rem;
+        padding: 0.15rem 0.55rem;
         border-radius: 4px;
     }
     .status-completed {
@@ -118,30 +151,30 @@ st.markdown(
     }
 
     .section-title {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #94a3b8;
-        margin-top: 0.8rem;
-        margin-bottom: 0.4rem;
+        margin-top: 0.6rem;
+        margin-bottom: 0.3rem;
     }
 
     .plan-step-row {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
-        padding: 0.4rem 0.6rem;
-        margin-bottom: 0.3rem;
-        background: rgba(30, 41, 59, 0.5);
+        padding: 0.35rem 0.55rem;
+        margin-bottom: 0.25rem;
+        background: rgba(26, 38, 63, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-        font-size: 0.85rem;
+        border-radius: 5px;
+        font-size: 0.82rem;
     }
     .plan-step-num {
         font-weight: 600;
         color: #38bdf8;
-        margin-right: 0.5rem;
+        margin-right: 0.4rem;
     }
     .plan-step-desc {
         flex: 1;
@@ -149,27 +182,27 @@ st.markdown(
     }
     .plan-step-status {
         font-weight: 600;
-        margin-left: 0.5rem;
+        margin-left: 0.4rem;
     }
 
     /* Welcome Card */
     .welcome-card {
-        background: rgba(30, 41, 59, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(19, 27, 46, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.07);
         border-radius: 8px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1rem;
+        padding: 1.1rem 1.3rem;
+        margin-bottom: 0.8rem;
     }
     .welcome-title {
-        font-size: 1.25rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: #f8fafc;
-        margin-bottom: 0.3rem;
+        margin-bottom: 0.2rem;
     }
     .welcome-subtitle {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         color: #94a3b8;
-        margin-bottom: 0.9rem;
+        margin-bottom: 0.75rem;
     }
     </style>
     """,
@@ -242,6 +275,18 @@ def _extract_recent_sql_queries(run_id: str | None = None) -> list[str]:
         return deduped[:5]
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Helper: Streaming Generator
+# ---------------------------------------------------------------------------
+
+def _stream_text(text: str, delay: float = 0.012):
+    """Yield word chunks for smooth assistant text streaming."""
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        yield word + (" " if i < len(words) - 1 else "")
+        time.sleep(delay)
 
 
 # ---------------------------------------------------------------------------
@@ -400,10 +445,10 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# Main Layout: Fixed-Height Split Viewport
+# Main Layout: Responsive Split Viewport (Height 520px for reliable fit)
 # ---------------------------------------------------------------------------
 
-col_chat, col_inspector = st.columns([1.5, 1.0], gap="medium")
+col_chat, col_inspector = st.columns([1.45, 1.0], gap="medium")
 
 # ===========================================================================
 # 1. Chat Workspace (Left Column)
@@ -413,8 +458,8 @@ with col_chat:
     messages = st.session_state.get("messages", [])
     turn_artifacts = st.session_state.get("turn_artifacts", {})
 
-    # Fixed height scrollable chat message container
-    chat_container = st.container(height=650)
+    # Responsive scrollable chat message container
+    chat_container = st.container(height=520)
 
     with chat_container:
         # Compact Landing State (only displayed when conversation is empty)
@@ -454,11 +499,11 @@ with col_chat:
                         fig.update_layout(
                             template="plotly_dark",
                             margin=dict(l=20, r=20, t=35, b=20),
-                            height=360,
+                            height=320,
                         )
                         st.plotly_chart(fig, width="stretch")
 
-    # Pinned Chat Input at bottom of Chat Workspace
+    # Pinned Chat Input at bottom of Chat Workspace (always visible)
     user_query = st.chat_input("Ask about your dataset (e.g., total revenue by region)...")
     if st.session_state.get("pending_query"):
         user_query = st.session_state["pending_query"]
@@ -473,12 +518,34 @@ with col_chat:
         run_id = initial_state["run_id"]
         log_run_start(run_id, user_query)
 
+        # Display user message immediately in chat
+        with chat_container:
+            with st.chat_message("user"):
+                st.markdown(user_query)
+
         with st.spinner("Analyzing dataset..."):
             try:
                 agent_graph = get_compiled_agent()
                 final_state = agent_graph.invoke(initial_state)
 
-                # Update session state
+                final_answer = final_state.get("final_answer") or "Analysis completed."
+                charts = final_state.get("chart_artifacts", [])
+
+                # Live Response Streaming in Chat
+                with chat_container:
+                    with st.chat_message("assistant"):
+                        st.write_stream(_stream_text(final_answer))
+                        if charts:
+                            for chart_dict in charts:
+                                fig = go.Figure(chart_dict)
+                                fig.update_layout(
+                                    template="plotly_dark",
+                                    margin=dict(l=20, r=20, t=35, b=20),
+                                    height=320,
+                                )
+                                st.plotly_chart(fig, width="stretch")
+
+                # Update session state with completed turn
                 st.session_state["messages"] = final_state.get("messages", [])
                 st.session_state["current_plan"] = final_state.get("plan")
                 st.session_state["current_tool_results"] = final_state.get("tool_results", [])
@@ -488,7 +555,6 @@ with col_chat:
 
                 # Attach charts to assistant message
                 latest_assistant_idx = len(st.session_state["messages"]) - 1
-                charts = final_state.get("chart_artifacts", [])
                 if charts:
                     st.session_state["turn_artifacts"][latest_assistant_idx] = charts
 
@@ -522,7 +588,7 @@ with col_inspector:
     if turn_history:
         if len(turn_history) > 1:
             turn_options = [
-                f"Turn {t['turn_number']}: {t['query'][:32]}..."
+                f"Turn {t['turn_number']}: {t['query'][:30]}..."
                 for t in turn_history
             ]
             selected_str = st.selectbox(
@@ -550,8 +616,8 @@ with col_inspector:
         i_errors = st.session_state.get("current_errors", [])
         i_telemetry = st.session_state.get("current_telemetry", {})
 
-    # Fixed height scrollable inspector container
-    inspector_container = st.container(height=650)
+    # Responsive scrollable inspector container
+    inspector_container = st.container(height=520)
 
     with inspector_container:
         if i_query or i_plan or i_tool_results:
@@ -592,7 +658,6 @@ with col_inspector:
             # ---------------------------------------------------------------
             st.markdown('<div class="section-title">Analysis Plan</div>', unsafe_allow_html=True)
             if i_plan and hasattr(i_plan, "steps") and i_plan.steps:
-                # Map step status
                 step_success_map = {
                     getattr(tr, "step_number", None): getattr(tr, "success", True)
                     for tr in i_tool_results
@@ -605,7 +670,6 @@ with col_inspector:
                     if hasattr(s_tool, "value"):
                         s_tool = s_tool.value
 
-                    # Status indicator
                     is_done = step_success_map.get(s_num)
                     if is_done is True:
                         mark = "<span style='color: #4ade80;'>✓</span>"

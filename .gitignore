@@ -26,13 +26,14 @@ htmlcov/
 *.duckdb
 *.duckdb.wal
 
-# Data files (may be large or contain PII)
+# Data files (Derived / generated parquet and raw user uploads)
 data/*.csv
 data/*.parquet
 data/*.xlsx
 data/*.xls
 !data/.gitkeep
 !data/README.md
+!data/Sales_Dataset_2024.xlsx
 
 # OS artefacts
 .DS_Store
@@ -53,4 +54,3 @@ build/
 # Logs
 logs/
 *.log
-

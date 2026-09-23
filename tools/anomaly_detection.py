@@ -22,7 +22,7 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -98,29 +98,15 @@ def execute_anomaly_detection(req: AnomalyRequest) -> dict[str, Any]:
     method = req.method.lower()
     threshold = float(req.threshold)
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = [f"{metric_col} IS NOT NULL"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_filter = build_sql_where_clause(req.filters)
+    where_str = f"{metric_col} IS NOT NULL AND {where_filter}"
 
     if method == "zscore":
         sql_stats = (
             f"SELECT AVG({metric_col}) AS mean_val, STDDEV({metric_col}) AS std_val "
             f"FROM dataset WHERE {where_str}"
         )
+        print(f"[Tool: anomaly_detection] Executing Stats SQL: {sql_stats}")
         stats_row = conn.execute(sql_stats).fetchone()
         mean_val = float(stats_row[0]) if (stats_row and stats_row[0] is not None) else 0.0
         std_val = float(stats_row[1]) if (stats_row and stats_row[1] is not None) else 1.0
@@ -138,6 +124,7 @@ def execute_anomaly_detection(req: AnomalyRequest) -> dict[str, Any]:
             f"ORDER BY ABS({metric_col} - {mean_val}) DESC "
             f"LIMIT 50"
         )
+        print(f"[Tool: anomaly_detection] Executing Outliers SQL: {sql_anomalies}")
         df = conn.execute(sql_anomalies).fetchdf()
         rows = df.to_dict(orient="records")
         for r in rows:
@@ -163,6 +150,7 @@ def execute_anomaly_detection(req: AnomalyRequest) -> dict[str, Any]:
         f"PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY {metric_col}) AS q3 "
         f"FROM dataset WHERE {where_str}"
     )
+    print(f"[Tool: anomaly_detection] Executing IQR SQL: {sql_iqr}")
     iqr_row = conn.execute(sql_iqr).fetchone()
     q1 = float(iqr_row[0]) if (iqr_row and iqr_row[0] is not None) else 0.0
     q3 = float(iqr_row[1]) if (iqr_row and iqr_row[1] is not None) else 0.0
@@ -180,6 +168,7 @@ def execute_anomaly_detection(req: AnomalyRequest) -> dict[str, Any]:
         f"ORDER BY {metric_col} DESC "
         f"LIMIT 50"
     )
+    print(f"[Tool: anomaly_detection] Executing Outliers SQL: {sql_anomalies}")
     df = conn.execute(sql_anomalies).fetchdf()
     rows = df.to_dict(orient="records")
     for r in rows:
@@ -198,3 +187,4 @@ def execute_anomaly_detection(req: AnomalyRequest) -> dict[str, Any]:
         "anomalies_found": len(rows),
         "rows": rows,
     }
+

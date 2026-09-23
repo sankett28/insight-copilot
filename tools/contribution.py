@@ -22,7 +22,7 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -100,23 +100,7 @@ def execute_contribution(req: ContributionRequest) -> list[dict[str, Any]]:
     agg_op = req.aggregation.lower()
     sql_agg = "COUNT" if agg_op == "count" else "AVG" if agg_op == "avg" else "SUM"
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_str = build_sql_where_clause(req.filters)
     metric_alias = f"{agg_op}_{metric_col}".lower()
     limit_clause = f" LIMIT {req.limit}" if req.limit else ""
 
@@ -131,6 +115,8 @@ def execute_contribution(req: ContributionRequest) -> list[dict[str, Any]]:
         f"{limit_clause}"
     )
 
+    print(f"[Tool: contribution] Executing SQL: {sql}")
     logger.info("Executing Contribution SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
     return df.to_dict(orient="records")
+

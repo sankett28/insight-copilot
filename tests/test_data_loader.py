@@ -16,11 +16,13 @@ from utils.data_loader import (
     validate_dataset,
     get_schema,
     get_schema_description,
+    build_sql_where_clause,
     CANONICAL_COLUMNS,
     NUMERIC_COLUMNS,
     CATEGORICAL_COLUMNS,
     DATE_COLUMN,
 )
+
 
 
 def test_dataset_path_resolution():
@@ -115,3 +117,32 @@ def test_raw_dataset_immutability():
     raw_count_after = conn.execute("SELECT COUNT(*) FROM raw_dataset").fetchone()[0]
     assert raw_count_after == 2000
     conn.close()
+
+
+def test_build_sql_where_clause():
+    """Verify build_sql_where_clause handles scalars, lists, numeric values, and quotes."""
+    # None or empty
+    assert build_sql_where_clause(None) == "1=1"
+    assert build_sql_where_clause({}) == "1=1"
+
+    # String scalar
+    res = build_sql_where_clause({"Region": "North"})
+    assert "LOWER(Region) = LOWER('North')" in res
+
+    # Single quotes escaping
+    res_quote = build_sql_where_clause({"Salesperson": "O'Connor"})
+    assert "LOWER(Salesperson) = LOWER('O''Connor')" in res_quote
+
+    # List of strings
+    res_list = build_sql_where_clause({"Region": ["West", "North", "South"]})
+    assert "LOWER(Region) IN (LOWER('West'), LOWER('North'), LOWER('South'))" in res_list
+
+    # Numeric scalar
+    res_num = build_sql_where_clause({"Units_Sold": 10})
+    assert "Units_Sold = 10" in res_num
+
+    # Unrecognized column ignored
+    res_invalid = build_sql_where_clause({"UnknownCol": "val", "Region": "East"})
+    assert "UnknownCol" not in res_invalid
+    assert "LOWER(Region) = LOWER('East')" in res_invalid
+

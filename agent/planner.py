@@ -54,6 +54,7 @@ def build_planner_node(llm: BaseLLM):
             }
 
         # Build message list for LLM call with dataset schema context
+        print(f"\n[LangGraph: Planner] Processing user query: {query}")
         messages = _build_planner_messages(query, history)
         run_id = state.get("run_id", "turn")
         telemetry = dict(state.get("telemetry", {}))
@@ -65,6 +66,7 @@ def build_planner_node(llm: BaseLLM):
         try:
             plan: AnalysisPlan = llm.structured_chat(messages, AnalysisPlan)
         except Exception as exc:  # noqa: BLE001
+            print(f"[LangGraph: Planner] ERROR: Planner LLM execution failed: {exc}")
             logger.exception("[%s] Planner LLM execution failed: %s", run_id, exc)
             return {
                 "intent": Intent.UNKNOWN.value,
@@ -81,6 +83,7 @@ def build_planner_node(llm: BaseLLM):
         # Pre-execution Plan Validation Boundary
         validation = validate_analysis_plan(plan)
         if not validation.is_valid:
+            print(f"[LangGraph: Planner] ERROR: Generated plan failed validation: {validation.errors}")
             logger.error("[%s] Generated plan failed validation: %s", run_id, validation.errors)
             return {
                 "intent": plan.intent.value,
@@ -91,6 +94,10 @@ def build_planner_node(llm: BaseLLM):
                 "errors": validation.errors,
             }
 
+        print(
+            f"[LangGraph: Planner] Plan produced ({duration_ms:.2f}ms): intent={plan.intent.value} | "
+            f"steps={len(plan.steps)} | tools={[t.value for t in plan.selected_tools]}"
+        )
         logger.info(
             "[%s] Plan produced and validated in %.2fms | intent=%s | steps=%d | tools=%s",
             run_id,
@@ -107,6 +114,7 @@ def build_planner_node(llm: BaseLLM):
             "current_step": 0,
             "telemetry": telemetry,
         }
+
 
     return planner_node
 

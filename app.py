@@ -33,8 +33,11 @@ from utils.data_loader import (
     reset_to_raw_dataset,
     validate_dataset,
 )
+from utils.logging_config import log_run_start, setup_logging
 
 load_dotenv()
+setup_logging()
+
 
 # ---------------------------------------------------------------------------
 # Page configuration — must be the first Streamlit call
@@ -131,19 +134,19 @@ with st.sidebar:
         "What is the correlation between Units Sold and Revenue?",
     ]
     for sq in starter_queries:
-        if st.button(sq, use_container_width=True, key=f"btn_{sq}"):
+        if st.button(sq, width="stretch", key=f"btn_{sq}"):
             st.session_state["pending_query"] = sq
 
     st.divider()
 
     # Reset Cleaned Data View Button
-    if st.button("🔄 Reset Active Dataset to Raw", use_container_width=True):
+    if st.button("🔄 Reset Active Dataset to Raw", width="stretch"):
         reset_to_raw_dataset(st.session_state.get("db_conn"))
         st.toast("Active dataset view reset to raw data.", icon="🔄")
         st.rerun()
 
     # Clear Chat Button
-    if st.button("🗑️ Clear Conversation", use_container_width=True):
+    if st.button("🗑️ Clear Conversation", width="stretch"):
         st.session_state["messages"] = []
         st.session_state["turn_artifacts"] = {}
         st.session_state["current_plan"] = None
@@ -172,7 +175,7 @@ def _render_tool_result_ui(tr: Any) -> None:
 
     if isinstance(data, list):
         if len(data) > 0:
-            st.dataframe(data, use_container_width=True)
+            st.dataframe(data, width="stretch")
         else:
             st.caption("Query returned 0 matching records.")
         return
@@ -204,17 +207,17 @@ def _render_tool_result_ui(tr: Any) -> None:
                         "Mean": stats.get("mean"),
                         "Std Dev": stats.get("stddev"),
                     })
-                st.dataframe(summary_rows, use_container_width=True)
+                st.dataframe(summary_rows, width="stretch")
 
             tab1, tab2 = st.tabs(["Null Counts", "Categorical Cardinality"])
             with tab1:
                 null_counts = data.get("null_counts", {})
                 null_rows = [{"Column": k, "Nulls": v} for k, v in null_counts.items()]
-                st.dataframe(null_rows, use_container_width=True)
+                st.dataframe(null_rows, width="stretch")
             with tab2:
                 cardinality = data.get("categorical_cardinality", {})
                 card_rows = [{"Dimension": k, "Distinct Values": v} for k, v in cardinality.items()]
-                st.dataframe(card_rows, use_container_width=True)
+                st.dataframe(card_rows, width="stretch")
             return
 
         # 2. Correlation rendering
@@ -234,7 +237,7 @@ def _render_tool_result_ui(tr: Any) -> None:
             c3.metric("Anomalies Found", data.get("total_anomalies", 0))
             if data.get("rows"):
                 st.markdown("🔍 **Flagged Outlier Records:**")
-                st.dataframe(data["rows"], use_container_width=True)
+                st.dataframe(data["rows"], width="stretch")
             else:
                 st.success("No anomalies detected outside threshold boundaries.")
             return
@@ -256,12 +259,12 @@ def _render_tool_result_ui(tr: Any) -> None:
                 if cmap:
                     st.markdown(f"🔄 **Transformation Mappings applied to `{col}`:**")
                     map_rows = [{"Raw Value": k, "Normalized To": v} for k, v in cmap.items()]
-                    st.dataframe(map_rows, use_container_width=True)
+                    st.dataframe(map_rows, width="stretch")
             return
 
         # 5. Standard rows table
         if "rows" in data and isinstance(data["rows"], list):
-            st.dataframe(data["rows"], use_container_width=True)
+            st.dataframe(data["rows"], width="stretch")
             with st.expander("Summary Statistics", expanded=False):
                 summary_dict = {k: v for k, v in data.items() if k != "rows"}
                 st.json(summary_dict)
@@ -310,7 +313,7 @@ with col_chat:
                         template="plotly_dark",
                         margin=dict(l=20, r=20, t=40, b=20),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
     # Handle Input from chat_input or sidebar quick starters
     user_query = st.chat_input("Ask an analytical question about the 2024 sales dataset...")
@@ -329,7 +332,11 @@ with col_chat:
             history=st.session_state.get("messages", []),
         )
 
+        run_id = initial_state["run_id"]
+        log_run_start(run_id, user_query)
+
         with st.spinner("Analyzing dataset & executing analytical plan..."):
+
             try:
                 agent_graph = get_compiled_agent()
                 final_state = agent_graph.invoke(initial_state)

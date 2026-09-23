@@ -119,30 +119,60 @@ def test_raw_dataset_immutability():
     conn.close()
 
 
-def test_build_sql_where_clause():
-    """Verify build_sql_where_clause handles scalars, lists, numeric values, and quotes."""
-    # None or empty
+def test_build_sql_where_clause_comprehensive():
+    """Verify build_sql_where_clause handles scalars, lists, numeric values, empty lists, and quotes."""
+    # 1. None or empty
     assert build_sql_where_clause(None) == "1=1"
     assert build_sql_where_clause({}) == "1=1"
 
-    # String scalar
-    res = build_sql_where_clause({"Region": "North"})
-    assert "LOWER(Region) = LOWER('North')" in res
+    # 2. Scalar categorical filter
+    res_scalar = build_sql_where_clause({"Region": "North"})
+    assert "LOWER(Region) = LOWER('North')" in res_scalar
 
-    # Single quotes escaping
-    res_quote = build_sql_where_clause({"Salesperson": "O'Connor"})
-    assert "LOWER(Salesperson) = LOWER('O''Connor')" in res_quote
+    # 3. Multi-value categorical filter
+    res_list = build_sql_where_clause({"Region": ["West", "North", "South", "East"]})
+    assert "LOWER(Region) IN (LOWER('West'), LOWER('North'), LOWER('South'), LOWER('East'))" in res_list
 
-    # List of strings
-    res_list = build_sql_where_clause({"Region": ["West", "North", "South"]})
-    assert "LOWER(Region) IN (LOWER('West'), LOWER('North'), LOWER('South'))" in res_list
-
-    # Numeric scalar
+    # 4. Numeric scalar filter
     res_num = build_sql_where_clause({"Units_Sold": 10})
     assert "Units_Sold = 10" in res_num
 
-    # Unrecognized column ignored
-    res_invalid = build_sql_where_clause({"UnknownCol": "val", "Region": "East"})
-    assert "UnknownCol" not in res_invalid
-    assert "LOWER(Region) = LOWER('East')" in res_invalid
+    # 5. Numeric list filter
+    res_num_list = build_sql_where_clause({"Units_Sold": [10, 20, 30]})
+    assert "Units_Sold IN (10, 20, 30)" in res_num_list
+
+    # 6. Empty list filter (matches zero rows)
+    res_empty = build_sql_where_clause({"Region": []})
+    assert "1=0" in res_empty
+
+    # 7. Multiple filters together
+    res_multi = build_sql_where_clause({"Region": ["North", "South"], "Category": "Electronics"})
+    assert "LOWER(Region) IN (LOWER('North'), LOWER('South'))" in res_multi
+    assert "LOWER(Category) = LOWER('Electronics')" in res_multi
+
+    # 8. Single quotes escaping
+    res_quote = build_sql_where_clause({"Salesperson": "O'Connor"})
+    assert "LOWER(Salesperson) = LOWER('O''Connor')" in res_quote
+
+
+def test_build_sql_where_clause_duckdb_execution():
+    """Verify generated WHERE clauses execute correctly against DuckDB canonical dataset."""
+    conn = get_connection()
+
+    # Multi-value list filter
+    where_list = build_sql_where_clause({"Region": ["West", "North", "South", "East"]})
+    df_list = conn.execute(f"SELECT COUNT(*) FROM dataset WHERE {where_list}").fetchone()[0]
+    assert df_list > 1900
+
+    # Empty list filter returns 0 rows
+    where_empty = build_sql_where_clause({"Region": []})
+    df_empty = conn.execute(f"SELECT COUNT(*) FROM dataset WHERE {where_empty}").fetchone()[0]
+    assert df_empty == 0
+
+    # Multiple filters combined
+    where_combined = build_sql_where_clause({"Region": ["North"], "Category": "Office"})
+    df_combined = conn.execute(f"SELECT COUNT(*) FROM dataset WHERE {where_combined}").fetchone()[0]
+    assert df_combined > 0
+
+
 

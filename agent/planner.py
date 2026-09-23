@@ -18,7 +18,9 @@ from llm.base import BaseLLM
 from models.schemas import AnalysisPlan, Intent, Message, Role, ToolName
 from utils.capability_registry import get_planner_context
 from utils.data_loader import get_schema_description
+from utils.logging_config import log_planner_completed
 from utils.prompts import PLANNER_SYSTEM_PROMPT
+
 
 logger = logging.getLogger(__name__)
 
@@ -98,13 +100,11 @@ def build_planner_node(llm: BaseLLM):
             f"[LangGraph: Planner] Plan produced ({duration_ms:.2f}ms): intent={plan.intent.value} | "
             f"steps={len(plan.steps)} | tools={[t.value for t in plan.selected_tools]}"
         )
-        logger.info(
-            "[%s] Plan produced and validated in %.2fms | intent=%s | steps=%d | tools=%s",
-            run_id,
-            duration_ms,
-            plan.intent,
-            len(plan.steps),
-            [t.value for t in plan.selected_tools],
+        log_planner_completed(
+            run_id=run_id,
+            intent=plan.intent.value,
+            tools=[t.value for t in plan.selected_tools],
+            latency_ms=duration_ms,
         )
 
         return {
@@ -114,6 +114,7 @@ def build_planner_node(llm: BaseLLM):
             "current_step": 0,
             "telemetry": telemetry,
         }
+
 
 
     return planner_node

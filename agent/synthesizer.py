@@ -21,9 +21,12 @@ from typing import Any
 from agent.state import AgentState
 from llm.base import BaseLLM
 from models.schemas import Message, Role, ToolResult
+from utils.logging_config import log_graph_completed, log_synthesis_completed
 from utils.prompts import SYNTHESIZER_SYSTEM_PROMPT
 
+
 logger = logging.getLogger(__name__)
+
 
 
 def build_synthesizer_node(llm: BaseLLM):
@@ -90,9 +93,16 @@ def build_synthesizer_node(llm: BaseLLM):
         telemetry["timings"] = timings
 
         print(f"[LangGraph: Synthesizer] Final answer generated ({duration_ms:.2f}ms, {len(answer)} chars)")
-        logger.info("[%s] Synthesis completed in %.2fms", run_id, duration_ms)
+        log_synthesis_completed(run_id=run_id, latency_ms=duration_ms)
+        log_graph_completed(
+            run_id=run_id,
+            success=True,
+            total_latency_ms=timings.get("total_turn_ms", duration_ms),
+        )
 
         return _build_output(answer, state.get("messages", []), telemetry=telemetry)
+
+
 
 
     return synthesizer_node

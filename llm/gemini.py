@@ -4,11 +4,12 @@ llm/gemini.py
 Gemini provider implementation of BaseLLM using the modern `google-genai` SDK.
 
 The API key is read from the GEMINI_API_KEY environment variable — never hard-coded.
-Structured output uses Gemini's native response_schema parameter with Pydantic models.
+Structured output uses JSON mode with schema guidance compatible across all Gemini API tiers.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -22,7 +23,7 @@ from llm.base import BaseLLM, LLMResponse
 logger = logging.getLogger(__name__)
 
 # Default model; can be overridden via constructor or GEMINI_MODEL env var.
-_DEFAULT_MODEL = "gemini-2.5-flash"
+_DEFAULT_MODEL = "gemini-3.5-flash"
 
 
 class GeminiLLM(BaseLLM):
@@ -36,7 +37,7 @@ class GeminiLLM(BaseLLM):
         """Initialise the Gemini provider.
 
         Args:
-            model: Model identifier (e.g. ``"gemini-2.5-flash"``).
+            model: Model identifier (e.g. ``"gemini-3.5-flash"``).
                    Falls back to the ``GEMINI_MODEL`` env var, then ``_DEFAULT_MODEL``.
             api_key: Gemini API key.
                      Falls back to the ``GEMINI_API_KEY`` env var.
@@ -81,6 +82,7 @@ class GeminiLLM(BaseLLM):
             temperature=temperature,
             system_instruction=system_instruction,
             max_output_tokens=max_tokens,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
         logger.info("Sending Gemini Chat Request (%s, temp=%.2f)...", self._model_name, temperature)
@@ -102,15 +104,26 @@ class GeminiLLM(BaseLLM):
     ) -> BaseModel:
         """Send messages and parse the reply into *schema*.
 
-        Uses Gemini's native structured JSON mode with response_schema.
+        Uses Gemini's JSON mode with schema guidance in system prompt to guarantee
+        compatibility with unconstrained dictionary parameters in Developer API mode.
         """
         contents, system_instruction = _build_genai_contents_and_system(messages)
+
+        schema_json = json.dumps(schema.model_json_schema(), indent=2)
+        schema_prompt = (
+            f"\n\nYou must return a valid JSON object matching this schema:\n{schema_json}"
+        )
+
+        if system_instruction:
+            system_instruction += schema_prompt
+        else:
+            system_instruction = schema_prompt.strip()
 
         config = types.GenerateContentConfig(
             temperature=temperature,
             system_instruction=system_instruction,
             response_mime_type="application/json",
-            response_schema=schema,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
         logger.info(
@@ -125,6 +138,14 @@ class GeminiLLM(BaseLLM):
         )
 
         raw_json = (response.text or "").strip()
+        if raw_json.startswith("```"):
+            lines = raw_json.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            raw_json = "\n".join(lines).strip()
+
         logger.info("Gemini Structured Response Received (%d chars)", len(raw_json))
         return schema.model_validate_json(raw_json)
 

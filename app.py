@@ -94,8 +94,9 @@ with st.sidebar:
     st.divider()
 
     # Active Model Badge
-    active_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    active_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     st.markdown(f"🤖 **Active Model**: `{active_model}`")
+
 
 
     st.divider()

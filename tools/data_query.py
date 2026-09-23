@@ -22,9 +22,10 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
+
 
 
 def data_query_tool_node(state: AgentState) -> dict:
@@ -112,22 +113,7 @@ def execute_data_query_request(req: DataQueryRequest) -> list[dict[str, Any]]:
         cols_str = "*"
 
     # Build WHERE filters safely
-    where_clauses: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_str = build_sql_where_clause(req.filters)
 
     # Sorting
     order_clause = ""
@@ -144,8 +130,10 @@ def execute_data_query_request(req: DataQueryRequest) -> list[dict[str, Any]]:
 
     sql = f"SELECT {cols_str} FROM dataset WHERE {where_str}{order_clause} LIMIT {limit}"
 
+    print(f"[Tool: data_query] Executing SQL: {sql}")
     logger.info("Executing DataQuery SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
+
 
     # Format datetime objects as ISO strings
     records = df.to_dict(orient="records")

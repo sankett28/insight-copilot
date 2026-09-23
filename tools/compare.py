@@ -22,9 +22,10 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
+
 
 
 def compare_tool_node(state: AgentState) -> dict:
@@ -113,22 +114,7 @@ def execute_compare(req: CompareRequest) -> dict[str, Any]:
         sql_agg = "SUM"
 
     # Base WHERE filters
-    base_where: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    base_where.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    base_where.append(f"{matched_col} = {val}")
-
-    base_where_str = " AND ".join(base_where)
+    base_where_str = build_sql_where_clause(req.filters)
 
     # Clean entity values for SQL
     clean_val_a = req.value_a.replace("'", "''")
@@ -143,10 +129,13 @@ def execute_compare(req: CompareRequest) -> dict[str, Any]:
         f"WHERE {base_where_str} AND LOWER({dim_col}) = LOWER('{clean_val_b}')"
     )
 
+    print(f"[Tool: compare] Executing SQL A: {sql_a}")
     logger.info("Executing Compare SQL A: %s", sql_a)
     res_a = conn.execute(sql_a).fetchone()
+    print(f"[Tool: compare] Executing SQL B: {sql_b}")
     logger.info("Executing Compare SQL B: %s", sql_b)
     res_b = conn.execute(sql_b).fetchone()
+
 
     val_a = round(float(res_a[0]), 2) if (res_a and res_a[0] is not None) else 0.0
     val_b = round(float(res_b[0]), 2) if (res_b and res_b[0] is not None) else 0.0

@@ -85,6 +85,7 @@ class GeminiLLM(BaseLLM):
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
+        print(f"\n[Gemini LLM] Sending Chat Request (model={self._model_name}, temp={temperature})...")
         logger.info("Sending Gemini Chat Request (%s, temp=%.2f)...", self._model_name, temperature)
         response = self._client.models.generate_content(
             model=self._model_name,
@@ -92,6 +93,7 @@ class GeminiLLM(BaseLLM):
             config=config,
         )
         text_content = response.text or ""
+        print(f"[Gemini LLM] Chat Response Received ({len(text_content)} chars)")
         logger.info("Gemini Chat Response Received (%d chars)", len(text_content))
         return LLMResponse(content=text_content, raw=response)
 
@@ -126,6 +128,7 @@ class GeminiLLM(BaseLLM):
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
 
+        print(f"\n[Gemini LLM] Sending Structured Request (model={self._model_name}, schema={schema.__name__})...")
         logger.info(
             "Sending Gemini Structured Request (%s, schema=%s)...",
             self._model_name,
@@ -146,8 +149,10 @@ class GeminiLLM(BaseLLM):
                 lines = lines[:-1]
             raw_json = "\n".join(lines).strip()
 
+        print(f"[Gemini LLM] Structured Response Received ({len(raw_json)} chars)")
         logger.info("Gemini Structured Response Received (%d chars)", len(raw_json))
         return schema.model_validate_json(raw_json)
+
 
 
 # ---------------------------------------------------------------------------

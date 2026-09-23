@@ -22,7 +22,7 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -102,23 +102,8 @@ def execute_segmentation(req: SegmentationRequest) -> list[dict[str, Any]]:
     sql_agg = "COUNT" if agg_op == "count" else "AVG" if agg_op in ("avg", "average") else "MIN" if agg_op == "min" else "MAX" if agg_op == "max" else "SUM"
     val_alias = f"{agg_op}_{metric_col}".lower()
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = [f"{dim_p} IS NOT NULL", f"{dim_s} IS NOT NULL", f"{metric_col} IS NOT NULL"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_filter = build_sql_where_clause(req.filters)
+    where_str = f"{dim_p} IS NOT NULL AND {dim_s} IS NOT NULL AND {metric_col} IS NOT NULL AND {where_filter}"
 
     sql = (
         f"SELECT {dim_p}, {dim_s}, "
@@ -130,6 +115,8 @@ def execute_segmentation(req: SegmentationRequest) -> list[dict[str, Any]]:
         f"LIMIT {req.limit}"
     )
 
+    print(f"[Tool: segmentation] Executing SQL: {sql}")
     logger.info("Executing Segmentation SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
     return df.to_dict(orient="records")
+

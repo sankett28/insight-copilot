@@ -63,8 +63,10 @@ def build_synthesizer_node(llm: BaseLLM):
                 + "; ".join(errors)
                 + ". Please try rephrasing your question."
             )
+            print(f"[LangGraph: Synthesizer] Error state detected; returning safe error response.")
             return _build_output(answer, state.get("messages", []), telemetry=telemetry)
 
+        print(f"\n[LangGraph: Synthesizer] Synthesizing {len(tool_results)} tool result(s)...")
         messages = _build_synthesizer_messages(query, tool_results, state)
 
         import time
@@ -74,6 +76,7 @@ def build_synthesizer_node(llm: BaseLLM):
             response = llm.chat(messages, temperature=0.3)
             answer = response.content
         except Exception as exc:  # noqa: BLE001
+            print(f"[LangGraph: Synthesizer] ERROR: Synthesizer LLM call failed: {exc}")
             logger.exception("[%s] Synthesizer LLM call failed: %s", run_id, exc)
             answer = (
                 "I was unable to generate a response due to an internal error. "
@@ -86,9 +89,11 @@ def build_synthesizer_node(llm: BaseLLM):
             timings["total_turn_ms"] = round((time.time() - telemetry["start_time"]) * 1000.0, 2)
         telemetry["timings"] = timings
 
+        print(f"[LangGraph: Synthesizer] Final answer generated ({duration_ms:.2f}ms, {len(answer)} chars)")
         logger.info("[%s] Synthesis completed in %.2fms", run_id, duration_ms)
 
         return _build_output(answer, state.get("messages", []), telemetry=telemetry)
+
 
     return synthesizer_node
 

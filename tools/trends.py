@@ -23,9 +23,10 @@ from models.schemas import (
     ToolResult,
     TrendsRequest,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
+
 
 
 def trends_tool_node(state: AgentState) -> dict:
@@ -103,22 +104,7 @@ def execute_trends_request(req: TrendsRequest) -> list[dict[str, Any]]:
     granularity = req.granularity.lower()
 
     # Build WHERE filters safely
-    where_clauses: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_str = build_sql_where_clause(req.filters)
     metric_alias = f"total_{metric_col}".lower()
 
     # Optional group_by dimension
@@ -143,8 +129,10 @@ def execute_trends_request(req: TrendsRequest) -> list[dict[str, Any]]:
         f"ORDER BY period ASC"
     )
 
+    print(f"[Tool: trends] Executing SQL: {sql}")
     logger.info("Executing Trends SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
+
 
     # Clean date formatting for period
     records = df.to_dict(orient="records")

@@ -25,7 +25,7 @@ from models.schemas import (
     ToolResult,
     VarianceRequest,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -101,23 +101,7 @@ def execute_variance(req: VarianceRequest) -> list[dict[str, Any]]:
     metric_col = req.metric
     granularity = req.granularity.lower()
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_str = build_sql_where_clause(req.filters)
     metric_alias = f"total_{metric_col}".lower()
 
     # Optional group_by
@@ -152,6 +136,7 @@ def execute_variance(req: VarianceRequest) -> list[dict[str, Any]]:
         f"ORDER BY period ASC{group_clause}"
     )
 
+    print(f"[Tool: variance] Executing SQL: {sql}")
     logger.info("Executing Variance SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
     # Convert numpy/pandas NaN to None for clean JSON serialization
@@ -161,3 +146,4 @@ def execute_variance(req: VarianceRequest) -> list[dict[str, Any]]:
         if "period" in r and isinstance(r["period"], str):
             r["period"] = r["period"].split(" ")[0]
     return records
+

@@ -241,9 +241,12 @@ def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
     """Safely construct a SQL WHERE clause from a dictionary of column filters.
 
     Handles:
-      - String scalars: case-insensitive match (LOWER(col) = LOWER('val'))
-      - List/tuple/set of scalars: IN clause (LOWER(col) IN ('v1', 'v2'))
-      - Numeric scalars: direct comparison (col = val)
+      - Categorical string scalars: case-insensitive match (LOWER(col) = LOWER('val'))
+      - Categorical list/tuple/set: IN clause (LOWER(col) IN (LOWER('v1'), LOWER('v2')))
+      - Numeric scalars: direct comparison (col = 10)
+      - Numeric list/tuple/set: IN clause (col IN (10, 20))
+      - Empty lists/tuples/sets: explicitly matches nothing ('1=0')
+      - Safe single-quote escaping for all string values
       - Case-insensitive canonical column mapping
     """
     if not filters:
@@ -259,22 +262,59 @@ def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
         if not matched_col:
             continue
 
-        if isinstance(val, str):
-            clean_val = val.replace("'", "''")
-            where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-        elif isinstance(val, (list, tuple, set)):
+        is_numeric = matched_col in NUMERIC_COLUMNS
+
+        if isinstance(val, (list, tuple, set)):
+            if len(val) == 0:
+                where_clauses.append("1=0")
+                continue
+
             clean_items: list[str] = []
             for item in val:
-                if isinstance(item, str):
-                    clean_item = item.replace("'", "''")
-                    clean_items.append(f"LOWER('{clean_item}')")
-                elif item is not None:
-                    clean_items.append(str(item))
+                if is_numeric:
+                    if isinstance(item, (int, float)):
+                        clean_items.append(str(item))
+                    elif item is not None and str(item).strip():
+                        try:
+                            clean_items.append(str(float(item)))
+                        except ValueError:
+                            pass
+                else:
+                    if isinstance(item, str):
+                        clean_item = item.replace("'", "''")
+                        clean_items.append(f"LOWER('{clean_item}')")
+                    elif item is not None:
+                        clean_item = str(item).replace("'", "''")
+                        clean_items.append(f"LOWER('{clean_item}')")
+
             if clean_items:
-                where_clauses.append(f"LOWER({matched_col}) IN ({', '.join(clean_items)})")
-        elif val is not None:
+                if is_numeric:
+                    where_clauses.append(f"{matched_col} IN ({', '.join(clean_items)})")
+                else:
+                    where_clauses.append(f"LOWER({matched_col}) IN ({', '.join(clean_items)})")
+            else:
+                where_clauses.append("1=0")
+
+        elif isinstance(val, str):
+            if is_numeric:
+                try:
+                    num_val = float(val)
+                    where_clauses.append(f"{matched_col} = {num_val}")
+                except ValueError:
+                    clean_val = val.replace("'", "''")
+                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+            else:
+                clean_val = val.replace("'", "''")
+                where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+
+        elif isinstance(val, (int, float)):
             where_clauses.append(f"{matched_col} = {val}")
 
+        elif val is not None:
+            clean_val = str(val).replace("'", "''")
+            where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+
     return " AND ".join(where_clauses)
+
 
 

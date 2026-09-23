@@ -17,8 +17,11 @@ import logging
 from agent.state import AgentState
 from models.schemas import ToolName, ToolResult
 from utils.capability_registry import get_node_map
+from utils.logging_config import log_dependency_blocked, log_tool_executed
 
 logger = logging.getLogger(__name__)
+
+
 
 # Map from ToolName enum to the LangGraph node name string, generated from capability registry.
 _TOOL_NODE_MAP: dict[ToolName, str] = get_node_map()
@@ -74,10 +77,17 @@ def router_node(state: AgentState) -> str:
                     f"Plan step {current_plan_step.step_number} ({current_plan_step.tool.value}) "
                     f"failed dependency check: required step {dep_step_num} was not completed successfully."
                 )
+                run_id = state.get("run_id", "turn")
+                log_dependency_blocked(
+                    run_id=run_id,
+                    step=current_plan_step.step_number,
+                    required_step=dep_step_num,
+                )
                 print(f"[LangGraph: Router] Dependency failure -> Routing to {ERROR_NODE}: {err_msg}")
                 logger.error(err_msg)
                 errors.append(err_msg)
                 return ERROR_NODE
+
 
     next_tool = current_plan_step.tool
     node_name = _TOOL_NODE_MAP.get(next_tool)
@@ -104,4 +114,17 @@ def router_node(state: AgentState) -> str:
 def advance_step(state: AgentState) -> dict:
     """LangGraph node: increment current_step after a tool completes."""
     step = state.get("current_step", 0)
+    run_id = state.get("run_id", "turn")
+    tool_results = state.get("tool_results", [])
+    if tool_results and len(tool_results) >= step + 1:
+        tr = tool_results[-1]
+        log_tool_executed(
+            run_id=run_id,
+            tool_name=tr.tool.value,
+            step=tr.step_number,
+            success=tr.success,
+            latency_ms=tr.execution_time_ms or 0.0,
+            error=tr.error,
+        )
     return {"current_step": step + 1}
+

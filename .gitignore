@@ -49,3 +49,8 @@ desktop.ini
 dist/
 build/
 *.egg-info/
+
+# Logs
+logs/
+*.log
+

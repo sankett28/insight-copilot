@@ -22,25 +22,35 @@ from models.schemas import CANONICAL_COLUMNS, CATEGORICAL_COLUMNS, DataCleanRequ
 logger = logging.getLogger(__name__)
 
 
+def damerau_levenshtein_distance(s1: str, s2: str) -> int:
+    """Compute the Damerau-Levenshtein edit distance between two strings.
+
+    Accounts for insertions, deletions, substitutions, and adjacent character transpositions.
+    """
+    len1, len2 = len(s1), len(s2)
+    d: dict[tuple[int, int], int] = {}
+    for i in range(-1, len1 + 1):
+        d[(i, -1)] = i + 1
+    for j in range(-1, len2 + 1):
+        d[(-1, j)] = j + 1
+
+    for i in range(len1):
+        for j in range(len2):
+            cost = 0 if s1[i] == s2[j] else 1
+            d[(i, j)] = min(
+                d[(i - 1, j)] + 1,        # deletion
+                d[(i, j - 1)] + 1,        # insertion
+                d[(i - 1, j - 1)] + cost, # substitution
+            )
+            if i > 0 and j > 0 and s1[i] == s2[j - 1] and s1[i - 1] == s2[j]:
+                d[(i, j)] = min(d[(i, j)], d[(i - 2, j - 2)] + 1)  # transposition
+
+    return d[(len1 - 1, len2 - 1)]
+
+
 def levenshtein_distance(s1: str, s2: str) -> int:
-    """Compute the Levenshtein edit distance between two strings."""
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-
-    if len(s2) == 0:
-        return len(s1)
-
-    previous_row = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    return previous_row[-1]
+    """Backward-compatible alias for damerau_levenshtein_distance."""
+    return damerau_levenshtein_distance(s1, s2)
 
 
 def build_fuzzy_cluster_mapping(
@@ -53,9 +63,13 @@ def build_fuzzy_cluster_mapping(
 
     Algorithm:
       1. Fetch all distinct non-null values ordered by frequency DESC.
-      2. Title-case and trim candidate values as the baseline.
-      3. For each low-frequency value, test edit distance against higher-frequency canonical parents.
-      4. If Levenshtein(v_low.lower(), v_high.lower()) <= threshold, cluster v_low -> v_high.
+      2. Title-case and trim candidate values as baseline normalized forms.
+      3. Compute aggregated frequency counts for all normalized forms.
+      4. Sort canonical parent candidates by frequency DESC, with deterministic tie-breaking.
+      5. For each raw value:
+         - If candidate matches a canonical parent casing, map directly to parent.
+         - If candidate edit distance to a higher-frequency parent <= threshold, merge to parent.
+         - Otherwise preserve normalized candidate form.
 
     Args:
         conn: Active DuckDB connection.
@@ -76,7 +90,6 @@ def build_fuzzy_cluster_mapping(
     for raw_val, count in rows:
         clean_title = str(raw_val).strip()
         if clean_title:
-            # Standardize casing to Title Case (e.g. 'NORTH' -> 'North', 'south' -> 'South')
             clean_title = clean_title.title()
         freq_list.append((str(raw_val), int(count), clean_title))
 
@@ -85,31 +98,32 @@ def build_fuzzy_cluster_mapping(
     for _, cnt, title_val in freq_list:
         canonical_counts[title_val] = canonical_counts.get(title_val, 0) + cnt
 
-    # Sort canonical parents by total frequency descending
-    sorted_canonicals = sorted(canonical_counts.keys(), key=lambda k: canonical_counts[k], reverse=True)
+    # Deterministic tie-breaking: primary key = -count, secondary key = name
+    sorted_canonicals = sorted(
+        canonical_counts.keys(), key=lambda k: (-canonical_counts[k], k)
+    )
 
     mapping: dict[str, str] = {}
 
     for raw_val, _, title_val in freq_list:
-        # Step 1: Case normalization
         matched_target = title_val
-
-        # Step 2: Fuzzy cluster matching against higher-frequency canonical targets
         for parent in sorted_canonicals:
+            # Exact casing match
             if parent.lower() == title_val.lower():
                 matched_target = parent
                 break
-            # Check Levenshtein distance on lowercased strings
-            dist = levenshtein_distance(title_val.lower(), parent.lower())
-            if dist <= threshold:
-                logger.info(
-                    "Fuzzy typo cluster matched: '%s' -> '%s' (edit distance %d)",
-                    title_val,
-                    parent,
-                    dist,
-                )
-                matched_target = parent
-                break
+            # Only merge into a strictly higher-frequency dominant parent
+            if canonical_counts[parent] > canonical_counts.get(title_val, 0):
+                dist = damerau_levenshtein_distance(title_val.lower(), parent.lower())
+                if dist <= threshold:
+                    logger.info(
+                        "Fuzzy typo cluster matched: '%s' -> '%s' (edit distance %d)",
+                        title_val,
+                        parent,
+                        dist,
+                    )
+                    matched_target = parent
+                    break
 
         mapping[raw_val] = matched_target
 
@@ -140,8 +154,11 @@ def apply_cleaning_to_duckdb(
     # Collect before metrics
     distinct_before: dict[str, int] = {}
     distinct_after: dict[str, int] = {}
-    cluster_mappings: dict[str, dict[str, str]] = {}
+    nulls_before: dict[str, int] = {}
+    nulls_after: dict[str, int] = {}
     nulls_replaced_counts: dict[str, int] = {}
+    target_fill_counts: dict[str, int] = {}
+    cluster_mappings: dict[str, dict[str, str]] = {}
 
     select_expressions: list[str] = []
 
@@ -156,13 +173,23 @@ def apply_cleaning_to_duckdb(
         distinct_before[col] = int(b_distinct[0]) if b_distinct else 0
 
         b_nulls = conn.execute(f"SELECT COUNT(*) FROM raw_dataset WHERE {col} IS NULL").fetchone()
-        nulls_replaced_counts[col] = int(b_nulls[0]) if b_nulls else 0
+        raw_null_count = int(b_nulls[0]) if b_nulls else 0
+        nulls_before[col] = raw_null_count
+
+        # Nulls replaced count is strictly tied to 'fill_nulls' operation
+        if "fill_nulls" in operations:
+            nulls_replaced_counts[col] = raw_null_count
+        else:
+            nulls_replaced_counts[col] = 0
 
         # Build fuzzy cluster mapping if requested
         col_mapping = {}
         if "fuzzy_deduplicate" in operations or "standardize_casing" in operations:
             col_mapping = build_fuzzy_cluster_mapping(
-                conn, "raw_dataset", col, threshold=threshold if "fuzzy_deduplicate" in operations else 0
+                conn,
+                "raw_dataset",
+                col,
+                threshold=threshold if "fuzzy_deduplicate" in operations else 0,
             )
             cluster_mappings[col] = col_mapping
 
@@ -192,11 +219,19 @@ def apply_cleaning_to_duckdb(
     logger.info("Updating active 'dataset' view with cleaning projection:\n%s", create_view_sql)
     conn.execute(create_view_sql)
 
-    # Measure distinct count after
+    # Measure distinct count, nulls after, and target fill count
     for col in target_columns:
         if col in CATEGORICAL_COLUMNS:
             a_distinct = conn.execute(f"SELECT COUNT(DISTINCT {col}) FROM dataset").fetchone()
             distinct_after[col] = int(a_distinct[0]) if a_distinct else 0
+
+            a_nulls = conn.execute(f"SELECT COUNT(*) FROM dataset WHERE {col} IS NULL").fetchone()
+            nulls_after[col] = int(a_nulls[0]) if a_nulls else 0
+
+            if "fill_nulls" in operations:
+                escaped_null = fill_null_val.replace("'", "''")
+                t_count = conn.execute(f"SELECT COUNT(*) FROM dataset WHERE {col} = '{escaped_null}'").fetchone()
+                target_fill_counts[col] = int(t_count[0]) if t_count else 0
 
     return {
         "status": "success",
@@ -204,7 +239,11 @@ def apply_cleaning_to_duckdb(
         "operations_applied": operations,
         "distinct_before": distinct_before,
         "distinct_after": distinct_after,
+        "nulls_before": nulls_before,
+        "nulls_after": nulls_after,
         "nulls_replaced": nulls_replaced_counts,
+        "target_fill_counts": target_fill_counts,
         "cluster_mappings": cluster_mappings,
         "message": f"Successfully cleaned columns {target_columns}. Active 'dataset' view updated in DuckDB.",
     }
+

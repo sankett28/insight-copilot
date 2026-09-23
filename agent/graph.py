@@ -34,6 +34,8 @@ from agent.state import AgentState
 from agent.synthesizer import build_synthesizer_node
 from llm.base import BaseLLM
 from models.schemas import Message, Role
+from utils.logging_config import log_graph_completed
+
 from tools.anomaly_detection import anomaly_detection_tool_node
 from tools.charts import charts_tool_node
 from tools.compare import compare_tool_node
@@ -190,6 +192,13 @@ def _error_handler_node(state: AgentState) -> dict:
     appends the assistant message to conversation history.
     """
     errors = state.get("errors", [])
+    run_id = state.get("run_id", "turn")
+    telemetry = state.get("telemetry", {})
+    start_time = telemetry.get("start_time")
+    import time
+    total_latency_ms = round((time.time() - start_time) * 1000.0, 2) if start_time else 0.0
+
+    log_graph_completed(run_id=run_id, success=False, total_latency_ms=total_latency_ms)
     logger.error("Graph terminated with errors: %s", errors)
     existing_messages = list(state.get("messages", []))
 
@@ -211,3 +220,4 @@ def _error_handler_node(state: AgentState) -> dict:
         "final_answer": final_answer,
         "messages": existing_messages,
     }
+

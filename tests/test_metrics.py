@@ -130,3 +130,32 @@ def test_12_malformed_request_node():
     assert len(results) == 1
     assert results[0].success is False
     assert "Invalid metric" in results[0].error
+
+
+def test_13_list_filter_metrics():
+    """Verify metrics calculation with list filter e.g. Region in ['West', 'North']."""
+    req = MetricsRequest(
+        metric="Revenue",
+        aggregation="sum",
+        filters={"Region": ["West", "North"]},
+    )
+    res = execute_metrics_request(req)
+    assert len(res) == 1
+    assert res[0]["sum_revenue"] > 0
+
+
+def test_14_empty_list_filter_metrics():
+    """Verify metrics calculation with empty list filter returns null or NaN sum."""
+    import pandas as pd
+
+    req = MetricsRequest(
+        metric="Revenue",
+        aggregation="sum",
+        filters={"Region": []},
+    )
+    res = execute_metrics_request(req)
+    assert len(res) == 1
+    val = res[0]["sum_revenue"]
+    assert val is None or pd.isna(val) or val == 0.0
+
+

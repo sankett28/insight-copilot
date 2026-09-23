@@ -12,6 +12,7 @@ from tools.data_clean import data_clean_tool_node, execute_data_clean
 from utils.data_cleaner import (
     apply_cleaning_to_duckdb,
     build_fuzzy_cluster_mapping,
+    damerau_levenshtein_distance,
     levenshtein_distance,
 )
 from utils.data_loader import (
@@ -30,14 +31,31 @@ def setup_and_teardown_data():
 
 
 def test_levenshtein_distance_algorithm():
-    """Verify edit distance computation across various word pairs."""
+    """Verify edit distance computation across various word pairs including transpositions."""
     assert levenshtein_distance("west", "west") == 0
     assert levenshtein_distance("west", "westt") == 1
     assert levenshtein_distance("East", "Easst") == 1
     assert levenshtein_distance("cat", "dog") == 3
     assert levenshtein_distance("kitten", "sitting") == 3
     assert levenshtein_distance("", "test") == 4
+    # Transposition (Damerau-Levenshtein)
+    assert damerau_levenshtein_distance("moblie", "mobile") == 1
+    assert damerau_levenshtein_distance("MOBLIE".lower(), "Mobile".lower()) == 1
 
+
+def test_build_fuzzy_cluster_mapping_product_moblie():
+    """Verify fuzzy cluster mapping maps MOBLIE to dominant parent Mobile."""
+    conn = get_connection()
+    mapping = build_fuzzy_cluster_mapping(conn, "raw_dataset", "Product", threshold=1)
+
+    assert isinstance(mapping, dict)
+    # Check transposition typo resolution
+    assert mapping.get("MOBLIE") == "Mobile"
+    assert mapping.get("Mobile") == "Mobile"
+    assert mapping.get("tabllet") == "Tablet"
+    assert mapping.get("headPhones") == "Headphones"
+    assert mapping.get("SMARTWATCH") == "Smartwatch"
+    assert mapping.get("laptop") == "Laptop"
 
 
 def test_build_fuzzy_cluster_mapping_region():
@@ -60,6 +78,7 @@ def test_build_fuzzy_cluster_mapping_region():
     assert mapping.get("North") == "North"
     assert mapping.get("East") == "East"
     assert mapping.get("South") == "South"
+
 
 
 def test_apply_cleaning_to_duckdb_region():
@@ -176,3 +195,46 @@ def test_concurrent_clean_isolation():
 
     conn_a.close()
     conn_b.close()
+
+
+def test_cleaning_audit_reconciliation():
+    """Verify strict mathematical reconciliation: raw nulls -> nulls replaced -> target fill count."""
+    conn = get_connection()
+    reset_to_raw_dataset(conn)
+
+    # 1. Raw null count before cleaning
+    raw_region_nulls = conn.execute("SELECT COUNT(*) FROM raw_dataset WHERE Region IS NULL").fetchone()[0]
+    assert raw_region_nulls == 39
+
+    # 2. Clean with fill_nulls
+    req_fill = DataCleanRequest(
+        columns=["Region"],
+        operations=["standardize_casing", "fuzzy_deduplicate", "fill_nulls"],
+        fill_null_value="Unassigned",
+    )
+    audit_fill = execute_data_clean(req_fill, conn=conn)
+
+    assert audit_fill["nulls_before"]["Region"] == 39
+    assert audit_fill["nulls_replaced"]["Region"] == 39
+    assert audit_fill["nulls_after"]["Region"] == 0
+    assert audit_fill["target_fill_counts"]["Region"] == 39
+
+    # Resulting Unassigned count in DuckDB dataset view
+    unassigned_in_view = conn.execute("SELECT COUNT(*) FROM dataset WHERE Region = 'Unassigned'").fetchone()[0]
+    assert unassigned_in_view == 39
+
+    # Invariant: raw null count == number replaced == resulting target count
+    assert raw_region_nulls == audit_fill["nulls_replaced"]["Region"] == unassigned_in_view
+
+    # 3. Clean without fill_nulls -> nulls_replaced must be 0 and nulls remain
+    reset_to_raw_dataset(conn)
+    req_no_fill = DataCleanRequest(
+        columns=["Region"],
+        operations=["standardize_casing", "fuzzy_deduplicate"],
+    )
+    audit_no_fill = execute_data_clean(req_no_fill, conn=conn)
+
+    assert audit_no_fill["nulls_before"]["Region"] == 39
+    assert audit_no_fill["nulls_replaced"]["Region"] == 0
+    assert audit_no_fill["nulls_after"]["Region"] == 39
+

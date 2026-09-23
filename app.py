@@ -3,9 +3,10 @@
 Modern Analytical Workspace for Insight Copilot (Antigravity & ChatGPT Style).
 
 Layout:
-  - Left Panel: Interactive Chat Workspace with pill-style input box & response streaming.
-  - Right Panel: Analysis Inspector & Terminal Trace with Plan, Tool Outputs, SQL, and Monospace Live Logs.
-  - Left Sidebar: Clean dataset health inspector, column metadata, quick starters, and session resets.
+  - Top Navigation Bar: Clean header with workspace title, engine badges, and model indicator.
+  - Left Panel: Interactive Chat Workspace with pill-style input box & live response streaming.
+  - Right Panel: Analysis Inspector & Monospace Terminal Trace with Plan, Tool Outputs, SQL, and Real-Time Logs.
+  - Left Sidebar: Dataset health inspector, column metadata explorer, quick starters, and session resets.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* 1. Hide default Streamlit top header & footer to prevent text clipping */
+    /* 1. Hide default Streamlit top header & footer to prevent clipping */
     header[data-testid="stHeader"] {
         display: none !important;
     }
@@ -76,7 +77,7 @@ st.markdown(
     }
 
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 0.6rem !important;
         padding-bottom: 0.25rem !important;
         padding-left: 1.25rem !important;
         padding-right: 1.25rem !important;
@@ -85,22 +86,70 @@ st.markdown(
         box-sizing: border-box !important;
     }
 
-    /* 3. Sidebar Styling */
+    /* 3. Top Navigation Bar */
+    .app-top-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.35rem 0.5rem 0.55rem 0.5rem;
+        margin-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .top-bar-left {
+        display: flex;
+        align-items: center;
+    }
+    .app-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #f0f6fc;
+        letter-spacing: -0.01em;
+    }
+    .app-tagline {
+        font-size: 0.8rem;
+        color: #8b949e;
+        margin-left: 0.6rem;
+        padding-left: 0.6rem;
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .top-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .top-badge {
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.15rem 0.55rem;
+        border-radius: 12px;
+    }
+    .db-badge {
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .model-badge {
+        background: rgba(168, 85, 247, 0.12);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.25);
+    }
+
+    /* 4. Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: #07090e !important;
         border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
     }
 
-    /* 4. Chat Message Container */
+    /* 5. Chat Message Container */
     [data-testid="stVerticalBlockBorderWrapper"] {
         border-color: rgba(255, 255, 255, 0.08) !important;
         background-color: rgba(22, 27, 34, 0.4) !important;
         border-radius: 12px !important;
     }
 
-    /* 5. Modern Pill Chat Input Styling (ChatGPT / Antigravity Style) */
+    /* 6. Modern Pill Chat Input Styling (ChatGPT / Antigravity Style) */
     [data-testid="stChatInput"] {
-        padding-top: 0.35rem !important;
+        padding-top: 0.3rem !important;
         padding-bottom: 0.15rem !important;
     }
     [data-testid="stChatInput"] > div {
@@ -116,7 +165,7 @@ st.markdown(
         border: none !important;
         font-size: 0.92rem !important;
         line-height: 1.4 !important;
-        padding: 10px 14px !important;
+        padding: 8px 14px !important;
     }
     [data-testid="stChatInput"] textarea::placeholder {
         color: #8b949e !important;
@@ -129,7 +178,7 @@ st.markdown(
         border: none !important;
     }
 
-    /* 6. Inspector Header & Cards */
+    /* 7. Inspector Header & Status */
     .inspector-top-bar {
         display: flex;
         align-items: center;
@@ -166,7 +215,7 @@ st.markdown(
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: #8b949e;
-        margin-top: 0.6rem;
+        margin-top: 0.5rem;
         margin-bottom: 0.3rem;
     }
 
@@ -174,12 +223,12 @@ st.markdown(
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.4rem 0.6rem;
-        margin-bottom: 0.3rem;
+        padding: 0.35rem 0.55rem;
+        margin-bottom: 0.25rem;
         background: rgba(22, 27, 34, 0.6);
         border: 1px solid rgba(255, 255, 255, 0.06);
         border-radius: 6px;
-        font-size: 0.84rem;
+        font-size: 0.83rem;
     }
     .plan-step-num {
         font-weight: 600;
@@ -191,33 +240,19 @@ st.markdown(
         color: #c9d1d9;
     }
 
-    /* Monospace Terminal Box (Antigravity Style) */
-    .terminal-container {
-        background-color: #07090e;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
-        padding: 0.75rem;
-        font-family: 'Consolas', 'Courier New', monospace;
-        font-size: 0.78rem;
-        line-height: 1.5;
-        color: #7ee787;
-        max-height: 440px;
-        overflow-y: auto;
-    }
-
     /* Welcome Card */
     .welcome-card {
         background: rgba(22, 27, 34, 0.5);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 10px;
-        padding: 1.2rem 1.4rem;
+        padding: 1.1rem 1.3rem;
         margin-bottom: 0.8rem;
     }
     .welcome-title {
-        font-size: 1.2rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: #f0f6fc;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.2rem;
     }
     .welcome-subtitle {
         font-size: 0.85rem;
@@ -477,7 +512,30 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# Main Layout: Responsive Split Viewport (Height 520px)
+# Top Navigation Bar (Antigravity Style)
+# ---------------------------------------------------------------------------
+
+active_model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+st.markdown(
+    f"""
+    <div class="app-top-bar">
+        <div class="top-bar-left">
+            <span class="app-title">📊 Insight Copilot</span>
+            <span class="app-tagline">2024 Sales Intelligence Workspace</span>
+        </div>
+        <div class="top-bar-right">
+            <span class="top-badge db-badge">⚡ DuckDB SQL Engine</span>
+            <span class="top-badge model-badge">🤖 {active_model_name}</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# Main Layout: Responsive Split Viewport (Height 490px)
 # ---------------------------------------------------------------------------
 
 col_chat, col_inspector = st.columns([1.45, 1.0], gap="medium")
@@ -491,7 +549,7 @@ with col_chat:
     turn_artifacts = st.session_state.get("turn_artifacts", {})
 
     # Responsive scrollable chat message container
-    chat_container = st.container(height=520)
+    chat_container = st.container(height=490)
 
     with chat_container:
         # Compact Landing State (only displayed when conversation is empty)
@@ -612,8 +670,6 @@ with col_chat:
 # ===========================================================================
 
 with col_inspector:
-    st.markdown("### 🗺️ Analysis Inspector")
-
     turn_history = st.session_state.get("turn_history", [])
     active_turn = None
 
@@ -649,7 +705,7 @@ with col_inspector:
         i_telemetry = st.session_state.get("current_telemetry", {})
 
     # Responsive scrollable inspector container
-    inspector_container = st.container(height=520)
+    inspector_container = st.container(height=490)
 
     with inspector_container:
         if i_query or i_plan or i_tool_results:

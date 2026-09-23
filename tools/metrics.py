@@ -25,9 +25,10 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
+
 
 
 def metrics_tool_node(state: AgentState) -> dict:
@@ -138,24 +139,7 @@ def execute_metrics_request(req: MetricsRequest) -> list[dict[str, Any]]:
         if not matched:
             raise ValueError(f"Invalid group_by column '{g}'. Must be one of {CANONICAL_COLUMNS}.")
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = ["1=1"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    # Handle case-insensitive matching for string values if needed
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_str = build_sql_where_clause(req.filters)
     metric_alias = f"{agg_op}_{metric_col}".lower()
 
     if validated_groups:
@@ -173,7 +157,9 @@ def execute_metrics_request(req: MetricsRequest) -> list[dict[str, Any]]:
             f"FROM dataset WHERE {where_str}"
         )
 
+    print(f"[Tool: metrics] Executing SQL: {sql}")
     logger.info("Executing Metrics SQL: %s", sql)
     df = conn.execute(sql).fetchdf()
     return df.to_dict(orient="records")
+
 

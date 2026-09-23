@@ -236,3 +236,45 @@ def get_schema_description() -> DatasetSchema:
 
     return _schema_cache
 
+
+def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
+    """Safely construct a SQL WHERE clause from a dictionary of column filters.
+
+    Handles:
+      - String scalars: case-insensitive match (LOWER(col) = LOWER('val'))
+      - List/tuple/set of scalars: IN clause (LOWER(col) IN ('v1', 'v2'))
+      - Numeric scalars: direct comparison (col = val)
+      - Case-insensitive canonical column mapping
+    """
+    if not filters:
+        return "1=1"
+
+    where_clauses: list[str] = ["1=1"]
+    for col, val in filters.items():
+        matched_col = None
+        for c in CANONICAL_COLUMNS:
+            if col.lower() == c.lower():
+                matched_col = c
+                break
+        if not matched_col:
+            continue
+
+        if isinstance(val, str):
+            clean_val = val.replace("'", "''")
+            where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+        elif isinstance(val, (list, tuple, set)):
+            clean_items: list[str] = []
+            for item in val:
+                if isinstance(item, str):
+                    clean_item = item.replace("'", "''")
+                    clean_items.append(f"LOWER('{clean_item}')")
+                elif item is not None:
+                    clean_items.append(str(item))
+            if clean_items:
+                where_clauses.append(f"LOWER({matched_col}) IN ({', '.join(clean_items)})")
+        elif val is not None:
+            where_clauses.append(f"{matched_col} = {val}")
+
+    return " AND ".join(where_clauses)
+
+

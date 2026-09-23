@@ -42,6 +42,7 @@ def router_node(state: AgentState) -> str:
     """
     errors: list[str] = state.get("errors", [])
     if errors:
+        print(f"[LangGraph: Router] Errors detected -> Routing to {ERROR_NODE}: {errors}")
         logger.warning("Router detected errors; routing to error_handler: %s", errors)
         return ERROR_NODE
 
@@ -50,10 +51,12 @@ def router_node(state: AgentState) -> str:
     plan = state.get("plan")
 
     if not selected_tools or plan is None:
+        print(f"[LangGraph: Router] No tools or plan -> Routing to {SYNTHESIZER_NODE}")
         logger.info("No tools or plan; routing directly to synthesizer.")
         return SYNTHESIZER_NODE
 
     if current_step >= len(selected_tools) or current_step >= len(plan.steps):
+        print(f"[LangGraph: Router] All {len(selected_tools)} steps complete -> Routing to {SYNTHESIZER_NODE}")
         logger.info("All %d tool steps complete; routing to synthesizer.", len(selected_tools))
         return SYNTHESIZER_NODE
 
@@ -71,6 +74,7 @@ def router_node(state: AgentState) -> str:
                     f"Plan step {current_plan_step.step_number} ({current_plan_step.tool.value}) "
                     f"failed dependency check: required step {dep_step_num} was not completed successfully."
                 )
+                print(f"[LangGraph: Router] Dependency failure -> Routing to {ERROR_NODE}: {err_msg}")
                 logger.error(err_msg)
                 errors.append(err_msg)
                 return ERROR_NODE
@@ -79,9 +83,13 @@ def router_node(state: AgentState) -> str:
     node_name = _TOOL_NODE_MAP.get(next_tool)
 
     if node_name is None:
+        print(f"[LangGraph: Router] Unknown tool '{next_tool}' -> Routing to {ERROR_NODE}")
         logger.error("Unknown tool '%s'; routing to error_handler.", next_tool)
         return ERROR_NODE
 
+    print(
+        f"[LangGraph: Router] Routing to node '{node_name}' (Step {current_step + 1}/{len(selected_tools)}: {current_plan_step.description})"
+    )
     logger.info(
         "Routing to '%s' (step %d/%d | step_number=%d).",
         node_name,
@@ -90,6 +98,7 @@ def router_node(state: AgentState) -> str:
         current_plan_step.step_number,
     )
     return node_name
+
 
 
 def advance_step(state: AgentState) -> dict:

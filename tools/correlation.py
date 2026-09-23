@@ -22,7 +22,7 @@ from models.schemas import (
     ToolName,
     ToolResult,
 )
-from utils.data_loader import get_connection
+from utils.data_loader import build_sql_where_clause, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -97,23 +97,8 @@ def execute_correlation(req: CorrelationRequest) -> dict[str, Any]:
     fa = req.field_a
     fb = req.field_b
 
-    # Build WHERE filters safely
-    where_clauses: list[str] = [f"{fa} IS NOT NULL", f"{fb} IS NOT NULL"]
-    if req.filters:
-        for col, val in req.filters.items():
-            matched_col = None
-            for c in CANONICAL_COLUMNS:
-                if col.lower() == c.lower():
-                    matched_col = c
-                    break
-            if matched_col:
-                if isinstance(val, str):
-                    clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
-                else:
-                    where_clauses.append(f"{matched_col} = {val}")
-
-    where_str = " AND ".join(where_clauses)
+    where_filter = build_sql_where_clause(req.filters)
+    where_str = f"{fa} IS NOT NULL AND {fb} IS NOT NULL AND {where_filter}"
 
     sql = (
         f"SELECT "
@@ -123,6 +108,7 @@ def execute_correlation(req: CorrelationRequest) -> dict[str, Any]:
         f"WHERE {where_str}"
     )
 
+    print(f"[Tool: correlation] Executing SQL: {sql}")
     logger.info("Executing Correlation SQL: %s", sql)
     row = conn.execute(sql).fetchone()
 
@@ -151,3 +137,4 @@ def execute_correlation(req: CorrelationRequest) -> dict[str, Any]:
         "interpretation": interpretation,
         "caveat": "Correlation does not imply causation. External factors or common drivers may explain statistical alignment.",
     }
+

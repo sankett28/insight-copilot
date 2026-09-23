@@ -1,14 +1,11 @@
 """app.py
 ------
-Fixed-Height Analytical Workspace for Insight Copilot.
+Modern Analytical Workspace for Insight Copilot (Antigravity & ChatGPT Style).
 
-Features:
-  - Responsive fixed-height layout with independent scroll regions.
-  - Hidden top header to prevent text clipping.
-  - Pinned and fully visible chat input box across all viewport heights.
-  - Smooth typewriter response streaming for assistant answers.
-  - Independent Analysis Inspector for real-time plan, tool output, and SQL auditing.
-  - Restrained dark analytical workspace styling.
+Layout:
+  - Left Panel: Interactive Chat Workspace with pill-style input box & response streaming.
+  - Right Panel: Analysis Inspector & Terminal Trace with Plan, Tool Outputs, SQL, and Monospace Live Logs.
+  - Left Sidebar: Clean dataset health inspector, column metadata, quick starters, and session resets.
 """
 
 from __future__ import annotations
@@ -50,7 +47,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS for Responsive, Clean Analytical Layout
+# Custom CSS for Modern Antigravity / ChatGPT Style UI
 # ---------------------------------------------------------------------------
 
 st.markdown(
@@ -65,7 +62,7 @@ st.markdown(
         display: none !important;
     }
 
-    /* 2. Main Viewport & Container */
+    /* 2. Main Viewport & Theme */
     html, body {
         overflow: hidden !important;
         height: 100vh !important;
@@ -74,8 +71,8 @@ st.markdown(
     }
 
     .stApp {
-        background-color: #0b0f19 !important;
-        color: #f1f5f9 !important;
+        background-color: #0d1117 !important;
+        color: #e6edf3 !important;
     }
 
     .block-container {
@@ -88,39 +85,57 @@ st.markdown(
         box-sizing: border-box !important;
     }
 
-    /* 3. Sidebar styling */
+    /* 3. Sidebar Styling */
     [data-testid="stSidebar"] {
-        background-color: #070a12 !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
+        background-color: #07090e !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
     }
 
-    /* 4. Streamlit containers styling */
+    /* 4. Chat Message Container */
     [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: rgba(255, 255, 255, 0.07) !important;
-        background-color: rgba(15, 23, 42, 0.4) !important;
-        border-radius: 8px !important;
+        border-color: rgba(255, 255, 255, 0.08) !important;
+        background-color: rgba(22, 27, 34, 0.4) !important;
+        border-radius: 12px !important;
     }
 
-    /* 5. Chat Input Styling */
+    /* 5. Modern Pill Chat Input Styling (ChatGPT / Antigravity Style) */
     [data-testid="stChatInput"] {
-        padding-top: 0.4rem !important;
-        padding-bottom: 0.2rem !important;
+        padding-top: 0.35rem !important;
+        padding-bottom: 0.15rem !important;
+    }
+    [data-testid="stChatInput"] > div {
+        border-radius: 28px !important;
+        background-color: #161b22 !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+        padding: 2px 8px !important;
     }
     [data-testid="stChatInput"] textarea {
-        background-color: #131b2e !important;
-        color: #f8fafc !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 8px !important;
+        background-color: transparent !important;
+        color: #f0f6fc !important;
+        border: none !important;
+        font-size: 0.92rem !important;
+        line-height: 1.4 !important;
+        padding: 10px 14px !important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #8b949e !important;
         font-size: 0.9rem !important;
     }
+    [data-testid="stChatInput"] button {
+        border-radius: 50% !important;
+        background-color: #238636 !important;
+        color: white !important;
+        border: none !important;
+    }
 
-    /* 6. Inspector Header & Status Badges */
-    .inspector-header {
+    /* 6. Inspector Header & Cards */
+    .inspector-top-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-bottom: 0.5rem;
-        margin-bottom: 0.5rem;
+        padding-bottom: 0.4rem;
+        margin-bottom: 0.4rem;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
@@ -135,19 +150,14 @@ st.markdown(
         border-radius: 4px;
     }
     .status-completed {
-        background: rgba(34, 197, 94, 0.15);
-        color: #4ade80;
-        border: 1px solid rgba(34, 197, 94, 0.3);
+        background: rgba(35, 134, 54, 0.2);
+        color: #3fb950;
+        border: 1px solid rgba(35, 134, 54, 0.4);
     }
     .status-failed {
-        background: rgba(239, 68, 68, 0.15);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-    }
-    .status-idle {
-        background: rgba(148, 163, 184, 0.1);
-        color: #94a3b8;
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(218, 54, 51, 0.2);
+        color: #f85149;
+        border: 1px solid rgba(218, 54, 51, 0.4);
     }
 
     .section-title {
@@ -155,7 +165,7 @@ st.markdown(
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #94a3b8;
+        color: #8b949e;
         margin-top: 0.6rem;
         margin-bottom: 0.3rem;
     }
@@ -164,44 +174,54 @@ st.markdown(
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.35rem 0.55rem;
-        margin-bottom: 0.25rem;
-        background: rgba(26, 38, 63, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 5px;
-        font-size: 0.82rem;
+        padding: 0.4rem 0.6rem;
+        margin-bottom: 0.3rem;
+        background: rgba(22, 27, 34, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 6px;
+        font-size: 0.84rem;
     }
     .plan-step-num {
         font-weight: 600;
-        color: #38bdf8;
+        color: #58a6ff;
         margin-right: 0.4rem;
     }
     .plan-step-desc {
         flex: 1;
-        color: #e2e8f0;
+        color: #c9d1d9;
     }
-    .plan-step-status {
-        font-weight: 600;
-        margin-left: 0.4rem;
+
+    /* Monospace Terminal Box (Antigravity Style) */
+    .terminal-container {
+        background-color: #07090e;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.78rem;
+        line-height: 1.5;
+        color: #7ee787;
+        max-height: 440px;
+        overflow-y: auto;
     }
 
     /* Welcome Card */
     .welcome-card {
-        background: rgba(19, 27, 46, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 8px;
-        padding: 1.1rem 1.3rem;
+        background: rgba(22, 27, 34, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 1.2rem 1.4rem;
         margin-bottom: 0.8rem;
     }
     .welcome-title {
-        font-size: 1.15rem;
+        font-size: 1.2rem;
         font-weight: 700;
-        color: #f8fafc;
-        margin-bottom: 0.2rem;
+        color: #f0f6fc;
+        margin-bottom: 0.25rem;
     }
     .welcome-subtitle {
         font-size: 0.85rem;
-        color: #94a3b8;
+        color: #8b949e;
         margin-bottom: 0.75rem;
     }
     </style>
@@ -275,6 +295,18 @@ def _extract_recent_sql_queries(run_id: str | None = None) -> list[str]:
         return deduped[:5]
     except Exception:
         return []
+
+
+def _extract_recent_logs(max_lines: int = 35) -> str:
+    """Read recent log lines from app.log for live terminal inspection."""
+    log_file = Path(__file__).resolve().parent / "logs" / "app.log"
+    if not log_file.exists():
+        return "No active log file found."
+    try:
+        lines = log_file.read_text(encoding="utf-8").splitlines()
+        return "\n".join(lines[-max_lines:])
+    except Exception as exc:
+        return f"Error reading log file: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +415,7 @@ def _render_tool_result_ui(tr: Any) -> None:
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("### INSIGHT COPILOT")
+    st.markdown("### 📊 Insight Copilot")
     st.caption("Deterministic Analytical Assistant")
 
     st.divider()
@@ -445,7 +477,7 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------------------------
-# Main Layout: Responsive Split Viewport (Height 520px for reliable fit)
+# Main Layout: Responsive Split Viewport (Height 520px)
 # ---------------------------------------------------------------------------
 
 col_chat, col_inspector = st.columns([1.45, 1.0], gap="medium")
@@ -469,7 +501,7 @@ with col_chat:
                 <div class="welcome-card">
                     <div class="welcome-title">Insight Copilot</div>
                     <div class="welcome-subtitle">Deterministic analytical workspace for your 2024 sales data.</div>
-                    <div style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.6;">
+                    <div style="font-size: 0.85rem; color: #8b949e; line-height: 1.6;">
                         Ask questions about sales revenue, margins, temporal trends, statistical anomalies, or data quality.<br>
                         Every computation runs deterministically in DuckDB with verified execution traces.
                     </div>
@@ -576,11 +608,11 @@ with col_chat:
 
 
 # ===========================================================================
-# 2. Analysis Inspector (Right Column)
+# 2. Analysis Inspector & Terminal Trace (Right Column - Antigravity Style)
 # ===========================================================================
 
 with col_inspector:
-    st.markdown("### Analysis Inspector")
+    st.markdown("### 🗺️ Analysis Inspector")
 
     turn_history = st.session_state.get("turn_history", [])
     active_turn = None
@@ -622,7 +654,7 @@ with col_inspector:
     with inspector_container:
         if i_query or i_plan or i_tool_results:
             # ---------------------------------------------------------------
-            # A. STATUS SECTION
+            # A. Top Status Bar
             # ---------------------------------------------------------------
             intent_name = getattr(i_plan, "intent", "DIRECT") if i_plan else "DIRECT"
             if hasattr(intent_name, "value"):
@@ -638,12 +670,12 @@ with col_inspector:
 
             st.markdown(
                 f"""
-                <div class="inspector-header">
+                <div class="inspector-top-bar">
                     <div>
                         <span class="status-badge {status_class}">{status_label}</span>
                     </div>
-                    <div style="font-size: 0.8rem; color: #94a3b8;">
-                        Intent: <b style="color: #f1f5f9;">{intent_name.upper()}</b>{duration_str}
+                    <div style="font-size: 0.8rem; color: #8b949e;">
+                        Intent: <b style="color: #f0f6fc;">{intent_name.upper()}</b>{duration_str}
                     </div>
                 </div>
                 """,
@@ -654,101 +686,98 @@ with col_inspector:
                 st.error("\n".join([f"• {e}" for e in i_errors]))
 
             # ---------------------------------------------------------------
-            # B. PLAN SECTION
+            # Inspector Tabs: Plan, Outputs & SQL, Live Terminal
             # ---------------------------------------------------------------
-            st.markdown('<div class="section-title">Analysis Plan</div>', unsafe_allow_html=True)
-            if i_plan and hasattr(i_plan, "steps") and i_plan.steps:
-                step_success_map = {
-                    getattr(tr, "step_number", None): getattr(tr, "success", True)
-                    for tr in i_tool_results
-                }
+            tab_plan, tab_tools, tab_term = st.tabs(
+                ["🗺️ Plan", "📊 Tool Data & SQL", "💻 Terminal & Logs"]
+            )
 
-                for s in i_plan.steps:
-                    s_num = getattr(s, "step_number", 1)
-                    s_desc = getattr(s, "description", "")
-                    s_tool = getattr(s, "tool", "")
-                    if hasattr(s_tool, "value"):
-                        s_tool = s_tool.value
+            with tab_plan:
+                st.markdown('<div class="section-title">Execution Plan Steps</div>', unsafe_allow_html=True)
+                if i_plan and hasattr(i_plan, "steps") and i_plan.steps:
+                    step_success_map = {
+                        getattr(tr, "step_number", None): getattr(tr, "success", True)
+                        for tr in i_tool_results
+                    }
 
-                    is_done = step_success_map.get(s_num)
-                    if is_done is True:
-                        mark = "<span style='color: #4ade80;'>✓</span>"
-                    elif is_done is False:
-                        mark = "<span style='color: #f87171;'>✕</span>"
-                    elif s.depends_on and any(step_success_map.get(d) is False for d in s.depends_on):
-                        mark = "<span style='color: #fbbf24;'>⊘</span>"
-                    else:
-                        mark = "<span style='color: #4ade80;'>✓</span>"
+                    for s in i_plan.steps:
+                        s_num = getattr(s, "step_number", 1)
+                        s_desc = getattr(s, "description", "")
+                        s_tool = getattr(s, "tool", "")
+                        if hasattr(s_tool, "value"):
+                            s_tool = s_tool.value
 
-                    st.markdown(
-                        f"""
-                        <div class="plan-step-row">
-                            <span class="plan-step-num">{s_num}.</span>
-                            <span class="plan-step-desc">{s_desc} <code style="font-size: 0.75rem;">({s_tool})</code></span>
-                            <span class="plan-step-status">{mark}</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.caption("Direct conversational synthesis (no tool steps required).")
+                        is_done = step_success_map.get(s_num)
+                        if is_done is True:
+                            mark = "<span style='color: #3fb950;'>✓</span>"
+                        elif is_done is False:
+                            mark = "<span style='color: #f85149;'>✕</span>"
+                        elif s.depends_on and any(step_success_map.get(d) is False for d in s.depends_on):
+                            mark = "<span style='color: #d29922;'>⊘</span>"
+                        else:
+                            mark = "<span style='color: #3fb950;'>✓</span>"
 
-            # ---------------------------------------------------------------
-            # C. TOOL OUTPUTS SECTION
-            # ---------------------------------------------------------------
-            st.markdown('<div class="section-title">Tool Outputs</div>', unsafe_allow_html=True)
-            if i_tool_results:
-                for tr in i_tool_results:
-                    tool_name = getattr(tr, "tool", "")
-                    if hasattr(tool_name, "value"):
-                        tool_name = tool_name.value
-                    s_num = getattr(tr, "step_number", "?")
-                    is_ok = getattr(tr, "success", True)
-                    t_time = getattr(tr, "execution_time_ms", None)
-
-                    icon = "✓" if is_ok else "✕"
-                    t_str = f" ({t_time:.0f}ms)" if t_time else ""
-                    exp_title = f"{icon} Step {s_num}: {tool_name}{t_str}"
-
-                    with st.expander(exp_title, expanded=False):
-                        _render_tool_result_ui(tr)
-            else:
-                st.caption("No tool executions recorded.")
-
-            # ---------------------------------------------------------------
-            # D. SQL SECTION (Collapsed by default)
-            # ---------------------------------------------------------------
-            st.markdown('<div class="section-title">Deterministic SQL</div>', unsafe_allow_html=True)
-            sql_queries = _extract_recent_sql_queries()
-            with st.expander("▶ SQL generated by deterministic tool", expanded=False):
-                if sql_queries:
-                    for q in sql_queries:
-                        st.code(q, language="sql")
+                        st.markdown(
+                            f"""
+                            <div class="plan-step-row">
+                                <span class="plan-step-num">{s_num}.</span>
+                                <span class="plan-step-desc">{s_desc} <code style="font-size: 0.75rem; color: #58a6ff;">({s_tool})</code></span>
+                                <span>{mark}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                 else:
-                    st.caption("No SQL queries recorded for this turn.")
+                    st.caption("Direct synthesis (no tool steps).")
 
-            # ---------------------------------------------------------------
-            # E. TELEMETRY SECTION (Collapsed by default)
-            # ---------------------------------------------------------------
-            st.markdown('<div class="section-title">Telemetry</div>', unsafe_allow_html=True)
-            with st.expander("▶ Telemetry & Durations", expanded=False):
+            with tab_tools:
+                st.markdown('<div class="section-title">Deterministic Outputs</div>', unsafe_allow_html=True)
+                if i_tool_results:
+                    for tr in i_tool_results:
+                        tool_name = getattr(tr, "tool", "")
+                        if hasattr(tool_name, "value"):
+                            tool_name = tool_name.value
+                        s_num = getattr(tr, "step_number", "?")
+                        is_ok = getattr(tr, "success", True)
+                        t_time = getattr(tr, "execution_time_ms", None)
+
+                        icon = "✓" if is_ok else "✕"
+                        t_str = f" ({t_time:.0f}ms)" if t_time else ""
+                        exp_title = f"{icon} Step {s_num}: {tool_name}{t_str}"
+
+                        with st.expander(exp_title, expanded=True):
+                            _render_tool_result_ui(tr)
+
+                # SQL queries expander
+                st.markdown('<div class="section-title">Generated SQL</div>', unsafe_allow_html=True)
+                sql_queries = _extract_recent_sql_queries()
+                with st.expander("▶ View Deterministic SQL", expanded=False):
+                    if sql_queries:
+                        for q in sql_queries:
+                            st.code(q, language="sql")
+                    else:
+                        st.caption("No SQL queries recorded for this turn.")
+
+            with tab_term:
+                st.markdown('<div class="section-title">Live Execution Logs (Antigravity Trace)</div>', unsafe_allow_html=True)
+                logs_text = _extract_recent_logs(35)
+                st.code(logs_text, language="text")
+
                 if i_telemetry and "timings" in i_telemetry:
                     t_info = i_telemetry["timings"]
                     c1, c2 = st.columns(2)
                     c1.metric("Planner", f"{t_info.get('planner_ms', 0):.1f} ms")
                     c2.metric("Synthesizer", f"{t_info.get('synthesizer_ms', 0):.1f} ms")
                     st.caption(f"Run ID: `{i_telemetry.get('run_id', 'turn')}`")
-                else:
-                    st.caption("No telemetry data captured.")
 
         else:
             st.markdown(
                 """
-                <div style="padding: 2rem 1rem; text-align: center; color: #64748b;">
-                    <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📊</div>
-                    <div style="font-weight: 600; font-size: 0.9rem; color: #94a3b8;">Analysis Inspector</div>
-                    <div style="font-size: 0.8rem; margin-top: 0.25rem;">
-                        Submit a query to inspect live plan execution, deterministic tool outputs, and SQL queries.
+                <div style="padding: 2.5rem 1rem; text-align: center; color: #8b949e;">
+                    <div style="font-size: 1.6rem; margin-bottom: 0.5rem;">🗺️</div>
+                    <div style="font-weight: 600; font-size: 0.95rem; color: #f0f6fc;">Analysis Inspector</div>
+                    <div style="font-size: 0.8rem; margin-top: 0.35rem; color: #8b949e;">
+                        Submit a query to inspect live plan steps, deterministic tool outputs, and real-time logs.
                     </div>
                 </div>
                 """,

@@ -8,6 +8,7 @@ openpyxl>=3.1.0
 plotly>=5.22.0
 streamlit>=1.36.0
 python-dotenv>=1.0.0
+httpx
 typing-extensions>=4.12.0
 
 # Development / testing

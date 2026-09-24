@@ -23,7 +23,7 @@ from llm.base import BaseLLM, LLMResponse
 logger = logging.getLogger(__name__)
 
 # Default model; can be overridden via constructor or GEMINI_MODEL env var.
-_DEFAULT_MODEL = "gemini-3.5-flash"
+_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
 
 class GeminiLLM(BaseLLM):

@@ -22,7 +22,7 @@ from llm.base import BaseLLM, LLMResponse
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+_DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 _GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 
 

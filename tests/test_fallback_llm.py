@@ -1,17 +1,20 @@
 """
 tests/test_fallback_llm.py
 --------------------------
-Unit tests for GroqLLM and FallbackLLM providers.
+Comprehensive unit tests for GroqLLM, FallbackLLM, and create_llm provider factory.
 """
 
+import os
 from unittest.mock import MagicMock, patch
+from pydantic import BaseModel, Field, ValidationError
 
 import pytest
-from pydantic import BaseModel, Field
 
 from llm.base import BaseLLM, LLMResponse
 from llm.fallback import FallbackLLM
 from llm.factory import create_llm, LLMProvider
+from llm.gemini import GeminiLLM
+from llm.groq import GroqLLM
 
 
 class SampleSchema(BaseModel):
@@ -19,83 +22,167 @@ class SampleSchema(BaseModel):
     count: int = Field(..., description="Count integer.")
 
 
-class MockPrimaryLLM(BaseLLM):
-    def __init__(self, should_fail: bool = False):
-        self.should_fail = should_fail
-        self.calls = 0
+class ConfigurableMockLLM(BaseLLM):
+    def __init__(self, model_name_str: str = "mock-provider", exception_to_raise: Exception | None = None):
+        self._model_name = model_name_str
+        self.exception_to_raise = exception_to_raise
+        self.chat_calls = 0
+        self.struct_calls = 0
 
     @property
     def model_name(self) -> str:
-        return "mock-primary"
+        return self._model_name
 
     def chat(self, messages, *, temperature=0.0, max_tokens=None):
-        self.calls += 1
-        if self.should_fail:
-            raise RuntimeError("429 RESOURCE_EXHAUSTED")
-        return LLMResponse(content="Primary response")
+        self.chat_calls += 1
+        if self.exception_to_raise:
+            raise self.exception_to_raise
+        return LLMResponse(content=f"{self._model_name} chat ok")
 
     def structured_chat(self, messages, schema, *, temperature=0.0):
-        self.calls += 1
-        if self.should_fail:
-            raise RuntimeError("429 RESOURCE_EXHAUSTED")
-        return schema(summary="Primary structured", count=10)
+        self.struct_calls += 1
+        if self.exception_to_raise:
+            raise self.exception_to_raise
+        return schema(summary=f"{self._model_name} struct ok", count=42)
 
 
-class MockFallbackLLM(BaseLLM):
-    def __init__(self):
-        self.calls = 0
-
-    @property
-    def model_name(self) -> str:
-        return "mock-fallback"
-
-    def chat(self, messages, *, temperature=0.0, max_tokens=None):
-        self.calls += 1
-        return LLMResponse(content="Fallback response")
-
-    def structured_chat(self, messages, schema, *, temperature=0.0):
-        self.calls += 1
-        return schema(summary="Fallback structured", count=99)
+# ---------------------------------------------------------------------------
+# Requirement A-H: FallbackLLM Behavior Tests
+# ---------------------------------------------------------------------------
 
 
-def test_fallback_primary_success():
-    """When primary succeeds, fallback is not called."""
-    primary = MockPrimaryLLM(should_fail=False)
-    fallback = MockFallbackLLM()
-    wrapper = FallbackLLM(primary=primary, fallback=fallback)
+def test_A_gemini_success_groq_not_called():
+    """A. Gemini success -> Groq not called."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite")
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
 
     res = wrapper.chat([{"role": "user", "content": "hi"}])
-    assert res.content == "Primary response"
-    assert primary.calls == 1
-    assert fallback.calls == 0
-
-    struct_res = wrapper.structured_chat([{"role": "user", "content": "hi"}], SampleSchema)
-    assert struct_res.summary == "Primary structured"
-    assert primary.calls == 2
-    assert fallback.calls == 0
+    assert res.content == "gemini-3.5-flash-lite chat ok"
+    assert gemini.chat_calls == 1
+    assert groq.chat_calls == 0
 
 
-def test_fallback_triggers_on_primary_failure():
-    """When primary fails with rate limit or error, fallback is called seamlessly."""
-    primary = MockPrimaryLLM(should_fail=True)
-    fallback = MockFallbackLLM()
-    wrapper = FallbackLLM(primary=primary, fallback=fallback)
+def test_B_gemini_429_groq_called_once():
+    """B. Gemini 429 -> Groq called exactly once."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=RuntimeError("429 RESOURCE_EXHAUSTED"))
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
 
     res = wrapper.chat([{"role": "user", "content": "hi"}])
-    assert res.content == "Fallback response"
-    assert primary.calls == 1
-    assert fallback.calls == 1
+    assert res.content == "openai/gpt-oss-120b chat ok"
+    assert gemini.chat_calls == 1
+    assert groq.chat_calls == 1
+
+
+def test_C_gemini_503_groq_called_once():
+    """C. Gemini 503 -> Groq called exactly once."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=RuntimeError("503 UNAVAILABLE"))
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
 
     struct_res = wrapper.structured_chat([{"role": "user", "content": "hi"}], SampleSchema)
-    assert struct_res.summary == "Fallback structured"
-    assert struct_res.count == 99
-    assert primary.calls == 2
-    assert fallback.calls == 2
+    assert struct_res.summary == "openai/gpt-oss-120b struct ok"
+    assert gemini.struct_calls == 1
+    assert groq.struct_calls == 1
 
 
-def test_fallback_model_name():
-    """Composite model name displays primary and fallback models."""
-    primary = MockPrimaryLLM()
-    fallback = MockFallbackLLM()
-    wrapper = FallbackLLM(primary=primary, fallback=fallback)
-    assert wrapper.model_name == "mock-primary (fallback: mock-fallback)"
+def test_D_gemini_connection_failure_groq_called_once():
+    """D. Gemini connection failure -> Groq called exactly once."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=ConnectionError("Connection refused by peer"))
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
+
+    res = wrapper.chat([{"role": "user", "content": "hi"}])
+    assert res.content == "openai/gpt-oss-120b chat ok"
+    assert gemini.chat_calls == 1
+    assert groq.chat_calls == 1
+
+
+def test_E_gemini_schema_validation_error_groq_not_called():
+    """E. Gemini schema/validation error -> Groq NOT called (re-raised)."""
+    val_err = ValueError("Invalid parameter value for column X")
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=val_err)
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
+
+    with pytest.raises(ValueError, match="Invalid parameter value"):
+        wrapper.structured_chat([{"role": "user", "content": "hi"}], SampleSchema)
+
+    assert gemini.struct_calls == 1
+    assert groq.struct_calls == 0
+
+
+def test_F_gemini_authentication_error_groq_not_called():
+    """F. Gemini authentication/configuration error -> Groq NOT called (re-raised)."""
+    auth_err = EnvironmentError("Gemini API key not found")
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=auth_err)
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
+
+    with pytest.raises(EnvironmentError, match="Gemini API key not found"):
+        wrapper.chat([{"role": "user", "content": "hi"}])
+
+    assert gemini.chat_calls == 1
+    assert groq.chat_calls == 0
+
+
+def test_G_groq_success_result_returned():
+    """G. Groq success -> result returned."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=RuntimeError("500 Internal Error"))
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b")
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
+
+    res = wrapper.chat([{"role": "user", "content": "hi"}])
+    assert res.content == "openai/gpt-oss-120b chat ok"
+
+
+def test_H_groq_failure_controlled_error_returned():
+    """H. Groq failure -> controlled error returned (not swallowed)."""
+    gemini = ConfigurableMockLLM("gemini-3.5-flash-lite", exception_to_raise=RuntimeError("503 Service Unavailable"))
+    groq = ConfigurableMockLLM("openai/gpt-oss-120b", exception_to_raise=RuntimeError("Groq 404 Model Not Found"))
+    wrapper = FallbackLLM(primary=gemini, fallback=groq)
+
+    with pytest.raises(RuntimeError, match="Groq 404 Model Not Found"):
+        wrapper.chat([{"role": "user", "content": "hi"}])
+
+    assert gemini.chat_calls == 1
+    assert groq.chat_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# Requirement I-L: Defaults & Overrides
+# ---------------------------------------------------------------------------
+
+
+def test_I_default_groq_model():
+    """I. Default Groq model is openai/gpt-oss-120b."""
+    groq = GroqLLM(api_key="gsk_test_key")
+    assert groq.model_name == "openai/gpt-oss-120b"
+
+
+def test_J_explicit_groq_model_override():
+    """J. Explicit GROQ_MODEL override works."""
+    groq = GroqLLM(api_key="gsk_test_key", model="qwen/qwen3.8-27b")
+    assert groq.model_name == "qwen/qwen3.8-27b"
+
+    with patch.dict(os.environ, {"GROQ_MODEL": "openai/gpt-oss-20b"}):
+        groq_env = GroqLLM(api_key="gsk_test_key")
+        assert groq_env.model_name == "openai/gpt-oss-20b"
+
+
+def test_K_default_gemini_model():
+    """K. Default Gemini model is gemini-3.5-flash-lite."""
+    with patch.dict(os.environ, {}, clear=True):
+        llm = GeminiLLM(api_key="AIzaSy_fake_key")
+        assert llm.model_name == "gemini-3.5-flash-lite"
+
+
+def test_L_explicit_gemini_model_override():
+    """L. Explicit GEMINI_MODEL override works."""
+    llm = GeminiLLM(api_key="AIzaSy_fake_key", model="gemini-3.5-flash")
+    assert llm.model_name == "gemini-3.5-flash"
+
+    with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-3.6-flash"}):
+        llm_env = GeminiLLM(api_key="AIzaSy_fake_key")
+        assert llm_env.model_name == "gemini-3.6-flash"

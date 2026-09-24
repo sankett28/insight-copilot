@@ -150,7 +150,7 @@ ANALYSIS (deterministic tool execution)
    than deleting them before analysis.
 
 2. **Data quality findings become explicit `ToolResult` evidence.** The
-   `data_profile` capability (Phase 2) will surface missing values, duplicates,
+   `data_profile` capability surfaces missing values, duplicates,
    invalid dates, and statistical anomalies as structured output that the
    synthesizer can narrate honestly.
 
@@ -166,23 +166,15 @@ ANALYSIS (deterministic tool execution)
 
 ---
 
-## Capability Registry (Design Concept — Phase 2)
+## Capability Registry Architecture
 
 ### Why a Registry
 
-Currently the planner learns which tools exist from the system prompt string
-in `utils/prompts.py`. As the number of analytical capabilities grows, this
-becomes a maintenance burden:
+The **Capability Registry** (`utils/capability_registry.py`) is the single authoritative source of truth for all 13 analytical capabilities. Everything — the planner prompt context, the router's node dispatch map, and parameter contract validation — is derived dynamically from the registry.
 
-- Adding a new capability requires editing the prompt string.
-- There is no single authoritative place to look up what a capability accepts,
-  produces, or depends on.
-- The router's `_TOOL_NODE_MAP` and the planner's prompt list the same tools
-  independently — two sources of truth.
-
-The **Capability Registry** resolves this by making one module the authoritative
-inventory of all available capabilities. Everything else — the planner prompt,
-the router's dispatch map, validation logic — is derived from the registry.
+- Adding a new capability requires registering it once in `CapabilityRegistry`.
+- Input parameters, output descriptions, and tool dependencies are defined in one central location.
+- Planner prompts and router dispatch maps are dynamically generated from the registry, eliminating dual sources of truth.
 
 ### Capability Definition
 
@@ -201,29 +193,21 @@ Capability
 └── consumes_previous_results bool — requires data from a prior ToolResult (e.g. charts)
 ```
 
-### Phase 2 Behaviour
+### Registry-Derived Integration
 
-In Phase 2 the planner prompt will be generated dynamically from the registry:
-
-```python
-# Pseudocode — not yet implemented
-registry.to_planner_context() -> str
-# Returns a formatted summary of all registered capabilities,
-# their input parameters, and their output contracts,
-# injected into the system prompt alongside the dataset schema.
-```
-
-The router's dispatch map will also be derived from the registry:
+The planner system prompt dynamically retrieves the capability context via:
 
 ```python
-# Pseudocode — not yet implemented
-registry.to_node_map() -> dict[str, str]
-# Returns {capability_name: langgraph_node_name} for conditional edge wiring.
+get_capability_registry().to_planner_context() -> str
 ```
+Returns a formatted summary of all 13 registered capabilities, their input parameters, and output contracts, injected dynamically into `PLANNER_SYSTEM_PROMPT` alongside the dataset schema.
 
-> **Do not create a second source of truth.** Once the registry exists, the
-> current `_TOOL_NODE_MAP` in `router.py` and the capability list in
-> `PLANNER_SYSTEM_PROMPT` should be generated from it.
+The router's node dispatch map is derived from the registry via:
+
+```python
+get_capability_registry().to_node_map() -> dict[str, str]
+```
+Returns `{capability_name: langgraph_node_name}` for conditional edge routing.
 
 ---
 
@@ -233,33 +217,33 @@ registry.to_node_map() -> dict[str, str]
 
 | Capability | Description | Status |
 |---|---|---|
-| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Phase 2 — Implemented |
-| `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Phase 1 — Implemented |
+| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Implemented |
+| `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Implemented |
 
 ### CORE ANALYSIS
 
 | Capability | Description | Status |
 |---|---|---|
-| `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Phase 1 — Implemented |
-| `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Phase 1 — Implemented |
-| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | ✅ Phase 2 — Implemented |
-| `contribution` | Percentage and absolute contribution of segments to a total | ✅ Phase 2 — Implemented |
-| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | ✅ Phase 2 — Implemented |
-| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | ✅ Phase 2 — Implemented |
+| `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Implemented |
+| `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Implemented |
+| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | ✅ Implemented |
+| `contribution` | Percentage and absolute contribution of segments to a total | ✅ Implemented |
+| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | ✅ Implemented |
+| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | ✅ Implemented |
 
 ### ADVANCED ANALYSIS
 
 | Capability | Description | Status |
 |---|---|---|
-| `anomaly_detection` | Statistical detection of unusual observations (IQR, z-score) — no ML required | 🔲 Phase 3 |
-| `correlation` | Pearson correlation between numeric fields — explicitly not causal inference | 🔲 Phase 3 |
-| `segmentation` | Cross-dimensional analysis: Region × Category, Salesperson × Category, etc. | 🔲 Phase 3 |
+| `anomaly_detection` | Statistical detection of unusual observations (IQR, z-score) — no ML required | ✅ Implemented |
+| `correlation` | Pearson correlation between numeric fields — explicitly not causal inference | ✅ Implemented |
+| `segmentation` | Cross-dimensional analysis: Region × Category, Salesperson × Category, etc. | ✅ Implemented |
 
 ### PRESENTATION
 
 | Capability | Description | Status |
 |---|---|---|
-| `charts` | Plotly figure generation (bar, line, scatter) from prior ToolResult data — no DuckDB query | ✅ Phase 1 — Implemented |
+| `charts` | Plotly figure generation (bar, line, scatter) from prior ToolResult data — no DuckDB query | ✅ Implemented |
 
 ---
 

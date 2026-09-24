@@ -6,6 +6,7 @@ enforcing rate-limit delays, capturing structured logs, and auditing silent corr
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -330,55 +331,6 @@ TEST_PACK = [
 ]
 
 
-def run_single_turn(
-    compiled_graph: Any,
-    query: str,
-    history: list[Message] | None = None,
-    checks: dict[str, Any] | None = None,
-) -> tuple[TurnResult, list[Message]]:
-    """Execute a single query turn through the compiled graph."""
-    if history is None:
-        history = []
-
-    initial_state = create_initial_state(query=query, history=history)
-
-    t_start = time.perf_counter()
-    final_state = compiled_graph.invoke(initial_state)
-    t_end = time.perf_counter()
-
-    plan = final_state.get("plan")
-    intent = final_state.get("intent", "unknown")
-    selected_tools = [str(t.value if hasattr(t, "value") else t) for t in final_state.get("selected_tools", [])]
-
-    plan_steps_data = []
-    if plan and hasattr(plan, "steps") and plan.steps:
-        for s in plan.steps:
-            plan_steps_data.append({
-                "step": getattr(s, "step", None),
-                "tool": getattr(s, "tool", None),
-                "parameters": getattr(s, "parameters", {}),
-                "depends_on": getattr(s, "depends_on", []),
-            })
-
-    tool_results_data = []
-    for r in final_state.get("tool_results", []):
-        tool_results_data.append({
-            "step": getattr(r, "step", None),
-            "tool": getattr(r, "tool", None),
-            "success": getattr(r, "success", True),
-            "error": getattr(r, "error", None),
-            "result": getattr(r, "result", None),
-        })
-
-    response = final_state.get("final_answer") or ""
-    errors = final_state.get("errors", [])
-
-    total_latency_ms = (t_end - t_start) * 1000
-    latencies = {"total_ms": round(total_latency_ms, 2)}
-
-    # Extract citations [Step X]
-import argparse
-
 def evaluate_turn_checks(
     turn_res_data: dict[str, Any],
     checks: dict[str, Any] | None = None,
@@ -439,7 +391,7 @@ def evaluate_turn_checks(
 
     # 5. Citation Audit (Silent-Correctness Gate)
     if tool_results and not errors:
-        valid_steps = {r.get("step") for r in tool_results if r.get("step")}
+        valid_steps = {r.get("step") for r in tool_results if r.get("step") is not None}
         if citations:
             invalid_citations = set(citations) - valid_steps
             if invalid_citations:
@@ -489,7 +441,7 @@ def run_single_turn(
     if plan and hasattr(plan, "steps") and plan.steps:
         for s in plan.steps:
             plan_steps_data.append({
-                "step": getattr(s, "step", None),
+                "step": getattr(s, "step_number", getattr(s, "step", None)),
                 "tool": getattr(s, "tool", None),
                 "parameters": getattr(s, "parameters", {}),
                 "depends_on": getattr(s, "depends_on", []),
@@ -498,11 +450,11 @@ def run_single_turn(
     tool_results_data = []
     for r in final_state.get("tool_results", []):
         tool_results_data.append({
-            "step": getattr(r, "step", None),
+            "step": getattr(r, "step_number", getattr(r, "step", None)),
             "tool": getattr(r, "tool", None),
             "success": getattr(r, "success", True),
             "error": getattr(r, "error", None),
-            "result": getattr(r, "result", None),
+            "result": getattr(r, "data", getattr(r, "result", None)),
         })
 
     response = final_state.get("final_answer") or ""

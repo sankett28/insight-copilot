@@ -263,6 +263,8 @@ def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
             continue
 
         is_numeric = matched_col in NUMERIC_COLUMNS
+        is_date = matched_col == DATE_COLUMN
+        col_expr = f"LOWER({matched_col}::VARCHAR)" if is_date else f"LOWER({matched_col})"
 
         if isinstance(val, (list, tuple, set)):
             if len(val) == 0:
@@ -291,7 +293,7 @@ def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
                 if is_numeric:
                     where_clauses.append(f"{matched_col} IN ({', '.join(clean_items)})")
                 else:
-                    where_clauses.append(f"LOWER({matched_col}) IN ({', '.join(clean_items)})")
+                    where_clauses.append(f"{col_expr} IN ({', '.join(clean_items)})")
             else:
                 where_clauses.append("1=0")
 
@@ -302,17 +304,20 @@ def build_sql_where_clause(filters: dict[str, Any] | None) -> str:
                     where_clauses.append(f"{matched_col} = {num_val}")
                 except ValueError:
                     clean_val = val.replace("'", "''")
-                    where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+                    where_clauses.append(f"{col_expr} = LOWER('{clean_val}')")
             else:
                 clean_val = val.replace("'", "''")
-                where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+                if is_date and len(clean_val) in (4, 7):  # Year ('2024') or Year-Month ('2024-08')
+                    where_clauses.append(f"{col_expr} LIKE LOWER('{clean_val}%')")
+                else:
+                    where_clauses.append(f"{col_expr} = LOWER('{clean_val}')")
 
         elif isinstance(val, (int, float)):
             where_clauses.append(f"{matched_col} = {val}")
 
         elif val is not None:
             clean_val = str(val).replace("'", "''")
-            where_clauses.append(f"LOWER({matched_col}) = LOWER('{clean_val}')")
+            where_clauses.append(f"{col_expr} = LOWER('{clean_val}')")
 
     return " AND ".join(where_clauses)
 

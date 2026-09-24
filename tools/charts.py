@@ -59,23 +59,43 @@ def charts_tool_node(state: AgentState) -> dict:
     plan_step = plan.steps[step_idx]
     raw_params = plan_step.parameters or {}
 
-    # Find candidate source tool results (from depends_on or latest preceding tool result)
+    # Find candidate source tool results with hierarchical priority:
+    # 1. Tabular list data from declared dependencies
+    # 2. Tabular list data from any preceding tool result
+    # 3. Dict data from declared dependencies
+    # 4. Dict data from any preceding tool result
     source_result: ToolResult | None = None
     if plan_step.depends_on:
-        dep_step_num = plan_step.depends_on[0]
-        for tr in tool_results:
-            if tr.step_number == dep_step_num and tr.success and tr.data:
-                source_result = tr
+        for dep_step_num in reversed(plan_step.depends_on):
+            for tr in tool_results:
+                if tr.step_number == dep_step_num and tr.success and isinstance(tr.data, list) and len(tr.data) > 0:
+                    source_result = tr
+                    break
+            if source_result is not None:
                 break
 
     if source_result is None:
-        # Fallback to the most recent successful tool result with list data
         for tr in reversed(tool_results):
             if tr.success and isinstance(tr.data, list) and len(tr.data) > 0:
                 source_result = tr
                 break
 
-    if not source_result or not isinstance(source_result.data, list) or len(source_result.data) == 0:
+    if source_result is None and plan_step.depends_on:
+        for dep_step_num in reversed(plan_step.depends_on):
+            for tr in tool_results:
+                if tr.step_number == dep_step_num and tr.success and tr.data:
+                    source_result = tr
+                    break
+            if source_result is not None:
+                break
+
+    if source_result is None:
+        for tr in reversed(tool_results):
+            if tr.success and tr.data:
+                source_result = tr
+                break
+
+    if not source_result or not source_result.data:
         err_msg = "Charts tool failed: No valid preceding tabular data available to plot."
         existing_results.append(
             ToolResult(
@@ -88,6 +108,27 @@ def charts_tool_node(state: AgentState) -> dict:
         )
         return {"tool_results": existing_results}
 
+    rows: list[dict[str, Any]] = []
+    if isinstance(source_result.data, list):
+        rows = [r for r in source_result.data if isinstance(r, dict)]
+    elif isinstance(source_result.data, dict):
+        if "records" in source_result.data and isinstance(source_result.data["records"], list):
+            rows = source_result.data["records"]
+        else:
+            rows = [source_result.data]
+
+    if not rows:
+        err_msg = "Charts tool failed: No valid preceding tabular data available to plot."
+        existing_results.append(
+            ToolResult(
+                tool=ToolName.CHARTS,
+                step_number=plan_step.step_number,
+                success=False,
+                data=None,
+                error=err_msg,
+            )
+        )
+        return {"tool_results": existing_results}
 
     try:
         # Infer default x and y columns if missing from parameters
@@ -127,6 +168,12 @@ def charts_tool_node(state: AgentState) -> dict:
         fig_dict = render_chart_from_data(rows, req)
         duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
 
+        existing_artifacts = list(state.get("chart_artifacts", []))
+        chart_id = f"chart_{state.get('run_id', 'run')}_s{plan_step.step_number}_{len(existing_artifacts)}"
+        fig_dict["_chart_id"] = chart_id
+        fig_dict["_step_number"] = plan_step.step_number
+        fig_dict["_run_id"] = state.get("run_id")
+
         existing_results = list(tool_results)
         existing_results.append(
             ToolResult(
@@ -141,7 +188,6 @@ def charts_tool_node(state: AgentState) -> dict:
             )
         )
 
-        existing_artifacts = list(state.get("chart_artifacts", []))
         existing_artifacts.append(fig_dict)
 
         return {

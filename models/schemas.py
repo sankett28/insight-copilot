@@ -280,6 +280,9 @@ class DataProfileRequest(BaseModel):
     pass
 
 
+DIMENSION_COLUMNS = CATEGORICAL_COLUMNS + [DATE_COLUMN]
+
+
 class CompareRequest(BaseModel):
     """Structured parameter contract for the compare capability."""
 
@@ -293,7 +296,7 @@ class CompareRequest(BaseModel):
     )
     dimension: str = Field(
         ...,
-        description="Categorical dimension column to compare values within (e.g. 'Region', 'Category').",
+        description="Categorical or temporal dimension column to compare values within (e.g. 'Region', 'Category', 'Date').",
     )
     value_a: str = Field(
         ...,
@@ -319,10 +322,10 @@ class CompareRequest(BaseModel):
     @field_validator("dimension")
     @classmethod
     def validate_dimension_column(cls, v: str) -> str:
-        for valid in CATEGORICAL_COLUMNS:
+        for valid in DIMENSION_COLUMNS:
             if v.lower() == valid.lower():
                 return valid
-        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {DIMENSION_COLUMNS}.")
 
 
 class ContributionRequest(BaseModel):
@@ -334,7 +337,7 @@ class ContributionRequest(BaseModel):
     )
     dimension: str = Field(
         ...,
-        description="Categorical dimension column to break down contribution by (e.g. 'Region', 'Category').",
+        description="Categorical or temporal dimension column to break down contribution by (e.g. 'Region', 'Category', 'Date').",
     )
     aggregation: Literal["sum", "avg", "count"] = Field(
         default="sum",
@@ -362,10 +365,10 @@ class ContributionRequest(BaseModel):
     @field_validator("dimension")
     @classmethod
     def validate_dimension_column(cls, v: str) -> str:
-        for valid in CATEGORICAL_COLUMNS:
+        for valid in DIMENSION_COLUMNS:
             if v.lower() == valid.lower():
                 return valid
-        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {DIMENSION_COLUMNS}.")
 
 
 class ProfitabilityRequest(BaseModel):
@@ -373,7 +376,7 @@ class ProfitabilityRequest(BaseModel):
 
     dimension: str = Field(
         ...,
-        description="Categorical dimension column to group by (e.g. 'Product', 'Region', 'Category', 'Salesperson').",
+        description="Categorical or temporal dimension column to group by (e.g. 'Product', 'Region', 'Category', 'Salesperson', 'Date').",
     )
     filters: dict[str, Any] | None = Field(
         default=None,
@@ -393,10 +396,10 @@ class ProfitabilityRequest(BaseModel):
     @field_validator("dimension")
     @classmethod
     def validate_dimension_column(cls, v: str) -> str:
-        for valid in CATEGORICAL_COLUMNS:
+        for valid in DIMENSION_COLUMNS:
             if v.lower() == valid.lower():
                 return valid
-        raise ValueError(f"Invalid dimension '{v}'. Must be one of {CATEGORICAL_COLUMNS}.")
+        raise ValueError(f"Invalid dimension '{v}'. Must be one of {DIMENSION_COLUMNS}.")
 
 
 class VarianceRequest(BaseModel):

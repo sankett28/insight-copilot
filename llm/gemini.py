@@ -140,24 +140,42 @@ class GeminiLLM(BaseLLM):
             config=config,
         )
 
-        raw_json = (response.text or "").strip()
-        if raw_json.startswith("```"):
-            lines = raw_json.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            raw_json = "\n".join(lines).strip()
+        raw_text = response.text or ""
+        cleaned_json = _clean_json_string(raw_text)
 
-        print(f"[Gemini LLM] Structured Response Received ({len(raw_json)} chars)")
-        logger.info("Gemini Structured Response Received (%d chars)", len(raw_json))
-        return schema.model_validate_json(raw_json)
+        print(f"[Gemini LLM] Structured Response Received ({len(cleaned_json)} chars)")
+        logger.info("Gemini Structured Response Received (%d chars)", len(cleaned_json))
+        try:
+            return schema.model_validate_json(cleaned_json)
+        except Exception:
+            parsed = json.loads(cleaned_json)
+            return schema.model_validate(parsed)
 
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _clean_json_string(raw: str) -> str:
+    """Strip markdown code fencing, extract JSON object, and remove trailing commas."""
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    start_idx = text.find("{")
+    end_idx = text.rfind("}")
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        text = text[start_idx : end_idx + 1]
+
+    import re
+    return re.sub(r",\s*([\]}])", r"\1", text)
 
 
 def _build_genai_contents_and_system(

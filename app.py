@@ -32,6 +32,7 @@ from utils.data_loader import (
     validate_dataset,
 )
 from utils.logging_config import log_run_start, setup_logging
+from utils.ui_helpers import generate_chart_key, is_plotly_figure_dict
 
 load_dotenv()
 setup_logging()
@@ -383,7 +384,7 @@ def _stream_text(text: str, delay: float = 0.012):
 # Helper: Tool Result Formatter
 # ---------------------------------------------------------------------------
 
-def _render_tool_result_ui(tr: Any) -> None:
+def _render_tool_result_ui(tr: Any, chart_key: str | None = None) -> None:
     """Render structured presentation of tool execution results."""
     error_msg = getattr(tr, "error", None)
     if error_msg:
@@ -393,6 +394,21 @@ def _render_tool_result_ui(tr: Any) -> None:
     data = getattr(tr, "result", None) or getattr(tr, "data", None)
     if data is None:
         st.caption("No tabular data returned.")
+        return
+
+    # Check for Plotly figure dictionary
+    if is_plotly_figure_dict(data):
+        fig = go.Figure(data)
+        fig.update_layout(
+            template="plotly_dark",
+            margin=dict(l=20, r=20, t=35, b=20),
+            height=300,
+        )
+        final_key = chart_key or generate_chart_key(
+            step_num=getattr(tr, "step_number", 0),
+            context="inspector_tool",
+        )
+        st.plotly_chart(fig, width="stretch", key=final_key)
         return
 
     if isinstance(data, list):
@@ -607,14 +623,23 @@ with col_chat:
 
                 # Render attached Plotly figures
                 if role_label == "assistant" and idx in turn_artifacts:
-                    for chart_dict in turn_artifacts[idx]:
+                    for c_idx, chart_dict in enumerate(turn_artifacts[idx]):
                         fig = go.Figure(chart_dict)
                         fig.update_layout(
                             template="plotly_dark",
                             margin=dict(l=20, r=20, t=35, b=20),
                             height=320,
                         )
-                        st.plotly_chart(fig, width="stretch")
+                        s_num = chart_dict.get("_step_number", c_idx + 1)
+                        r_id = chart_dict.get("_run_id")
+                        chart_key = generate_chart_key(
+                            run_id=r_id,
+                            turn_idx=idx,
+                            step_num=s_num,
+                            chart_idx=c_idx,
+                            context="chat_history",
+                        )
+                        st.plotly_chart(fig, width="stretch", key=chart_key)
 
     # Pinned Chat Input at bottom of Chat Workspace (always visible)
     user_query = st.chat_input("Ask about your dataset (e.g., total revenue by region)...")
@@ -649,14 +674,22 @@ with col_chat:
                     with st.chat_message("assistant"):
                         st.write_stream(_stream_text(final_answer))
                         if charts:
-                            for chart_dict in charts:
+                            for c_idx, chart_dict in enumerate(charts):
                                 fig = go.Figure(chart_dict)
                                 fig.update_layout(
                                     template="plotly_dark",
                                     margin=dict(l=20, r=20, t=35, b=20),
                                     height=320,
                                 )
-                                st.plotly_chart(fig, width="stretch")
+                                s_num = chart_dict.get("_step_number", c_idx + 1)
+                                chart_key = generate_chart_key(
+                                    run_id=run_id,
+                                    turn_idx=len(messages),
+                                    step_num=s_num,
+                                    chart_idx=c_idx,
+                                    context="live_stream",
+                                )
+                                st.plotly_chart(fig, width="stretch", key=chart_key)
 
                 # Update session state with completed turn
                 st.session_state["messages"] = final_state.get("messages", [])
@@ -825,7 +858,14 @@ with col_inspector:
                         exp_title = f"{icon} Step {s_num}: {tool_name}{t_str}"
 
                         with st.expander(exp_title, expanded=True):
-                            _render_tool_result_ui(tr)
+                            inspector_chart_key = generate_chart_key(
+                                run_id=i_telemetry.get("run_id") if i_telemetry else None,
+                                turn_idx=getattr(active_turn, "get", lambda k, d=None: d)("turn_number", 0) if active_turn else 0,
+                                step_num=s_num,
+                                chart_idx=0,
+                                context="inspector_tool",
+                            )
+                            _render_tool_result_ui(tr, chart_key=inspector_chart_key)
 
                 # SQL queries expander
                 st.markdown('<div class="section-title">Generated SQL</div>', unsafe_allow_html=True)

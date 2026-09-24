@@ -55,33 +55,48 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* 1. Header & Sidebar Controls (Keep Sidebar Expand Button Visible & Clickable) */
+    /* 1. Header & Sidebar Toggle Controls (Expand & Collapse Buttons) */
     header[data-testid="stHeader"] {
         background: transparent !important;
         height: 2.8rem !important;
         z-index: 99999 !important;
         pointer-events: none !important;
     }
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"] {
+        position: fixed !important;
+        top: 0.45rem !important;
+        left: 0.6rem !important;
+        z-index: 1000000 !important;
+        pointer-events: auto !important;
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="collapsedControl"] button,
     header[data-testid="stHeader"] button,
     section[data-testid="stSidebar"] button {
         pointer-events: auto !important;
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
-        z-index: 100000 !important;
+        z-index: 1000000 !important;
         background: #161b22 !important;
-        border: 1px solid rgba(56, 189, 248, 0.5) !important;
+        border: 1px solid rgba(56, 189, 248, 0.6) !important;
         border-radius: 8px !important;
         color: #38bdf8 !important;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
         transition: all 0.2s ease !important;
     }
-    [data-testid="stSidebarCollapsedControl"]:hover,
-    [data-testid="stSidebarCollapseButton"]:hover,
-    [data-testid="collapsedControl"]:hover,
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] svg {
+        fill: #38bdf8 !important;
+        color: #38bdf8 !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] button:hover,
+    [data-testid="stSidebarCollapseButton"] button:hover,
+    [data-testid="collapsedControl"] button:hover,
     header[data-testid="stHeader"] button:hover {
         background: rgba(56, 189, 248, 0.25) !important;
         border-color: #38bdf8 !important;
@@ -531,28 +546,6 @@ with st.sidebar:
     for sq in starters:
         if st.button(sq, width="stretch", key=f"btn_{sq}"):
             st.session_state["pending_query"] = sq
-
-    st.divider()
-
-    # Session Actions
-    c_btn1, c_btn2 = st.columns(2)
-    with c_btn1:
-        if st.button("🔄 Reset Data", width="stretch"):
-            reset_to_raw_dataset(st.session_state.get("db_conn"))
-            st.toast("Reset to raw dataset.", icon="🔄")
-            st.rerun()
-    with c_btn2:
-        if st.button("🗑️ Clear Chat", width="stretch"):
-            st.session_state["messages"] = []
-            st.session_state["turn_artifacts"] = {}
-            st.session_state["turn_history"] = []
-            st.session_state["current_plan"] = None
-            st.session_state["current_tool_results"] = []
-            st.session_state["current_errors"] = []
-            st.session_state["current_telemetry"] = {}
-            st.session_state["last_query"] = None
-            st.session_state["pending_query"] = None
-            st.rerun()
 
 
 # ---------------------------------------------------------------------------

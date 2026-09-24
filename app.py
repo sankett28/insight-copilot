@@ -62,7 +62,15 @@ st.markdown(
         z-index: 99999 !important;
         pointer-events: none !important;
     }
-    [data-testid="stSidebarCollapsedControl"] {
+    [data-testid="stToolbar"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: transparent !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
         position: fixed !important;
         top: 0.45rem !important;
         left: 0.6rem !important;
@@ -102,7 +110,7 @@ st.markdown(
         border-color: #38bdf8 !important;
         color: #ffffff !important;
     }
-    #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
+    #MainMenu, footer, [data-testid="stDecoration"], .stAppDeployButton, [data-testid="stStatusWidget"] {
         visibility: hidden !important;
         display: none !important;
     }

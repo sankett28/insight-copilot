@@ -268,8 +268,8 @@ requires two distinct LLM call patterns:
 
 ### Decision
 
-Use **Google Gemini** (`google-generativeai` SDK, default model:
-`gemini-2.0-flash`) as the initial LLM provider, accessed through an abstract
+Use **Google Gemini** (`google-genai` SDK, configurable via `GEMINI_MODEL` env var;
+production default: `gemini-3.5-flash`) as the primary LLM provider, accessed through an abstract
 `BaseLLM` interface defined in `llm/base.py`. The concrete implementation
 lives in `llm/gemini.py`. Provider selection is handled by `llm/factory.py`.
 
@@ -527,7 +527,7 @@ The legacy `google-generativeai` package has reached end-of-support and produces
 
 - **Positive**: Zero deprecation warnings in test suite and runtime logs.
 - **Positive**: Full operational telemetry across every analytical turn.
-- **Positive**: Future-proof compatibility with modern Google Gemini models (`gemini-2.5-flash`).
+- **Positive**: Future-proof compatibility with current and future Google Gemini models (`google-genai` SDK).
 
 ---
 
@@ -552,4 +552,29 @@ Implement an explicit two-tier Medallion architecture within DuckDB and session 
 - **Positive**: Strict data lineage preservation — raw source data is never permanently corrupted.
 - **Positive**: Enables comparative before/after auditing across multi-turn cleaning conversations.
 - **Positive**: Seamless deterministic reset between test cases in automated test runners.
+
+---
+
+## ADR-012 — Provider-Agnostic LLM Architecture & Transparent Groq Fallback
+
+**Date**: 2026-09-24
+**Status**: Accepted
+
+### Context
+
+Transient provider availability failures (rate limits `429 RESOURCE_EXHAUSTED`, service errors `503 SERVICE_UNAVAILABLE`, network/transport errors) on primary LLM endpoints can interrupt analytical turns during active user sessions or evaluation benchmarks. Duplicating retry logic inside individual nodes (`planner.py` or `synthesizer.py`) violates node single-responsibility and creates brittle code paths.
+
+### Decision
+
+1. Keep all agent nodes (`planner`, `synthesizer`) strictly provider-agnostic by consuming the abstract `BaseLLM` interface.
+2. Implement `FallbackLLM` in `llm/fallback.py` as a transparent wrapper over a primary (`GeminiLLM`, production: `gemini-3.5-flash`) and an optional secondary (`GroqLLM` using `openai/gpt-oss-120b`) provider.
+3. `FallbackLLM` invokes `_is_availability_error(exc)` on any exception from the primary. Recognized availability/transport failures (rate limits `429`, service errors `500/502/503/504`, connection/timeout errors) transparently route to the fallback. Authentication, validation, and application errors are **not** caught by fallback — they are re-raised to the caller as normal exceptions.
+
+### Consequences
+
+- **Positive**: Transient Gemini availability or transport failures can trigger transparent fallback to the configured Groq provider, reducing visible disruption during rate-limited sessions.
+- **Positive**: Authentication errors, bad request parameters, and application bugs are not silently swallowed — they propagate normally, making them discoverable.
+- **Positive**: Complete abstraction — planner and synthesizer nodes remain 100% agnostic of provider failover logic.
+- **Positive**: Comprehensive unit test coverage verifying fallback triggers and non-trigger cases (`tests/test_fallback_llm.py`).
+- **Negative**: Fallback is not a zero-downtime guarantee. If both primary and fallback providers are unavailable or misconfigured, the turn will still fail. If `GROQ_API_KEY` is absent, fallback itself will fail.
 

@@ -171,13 +171,13 @@ from real tool evidence.
 ### 2A — Capability Registry & Architecture
 
 - [x] Design and implement `utils/capability_registry.py`
-  - `Capability` dataclass: `name`, `category`, `description`, `input_schema`, `output_schema`, `deterministic`, `dependencies`, `independent`, `consumes_previous_results`
+  - `Capability` dataclass: `name`, `category`, `description`, `input_schema`, `output_description`, `deterministic`, `independent`, `consumes_previous_results`, `node_name`
   - `REGISTRY: dict[str, Capability]` — single authoritative source for all registered capabilities
-  - `registry.to_planner_context() -> str` — generate capability list for planner system prompt
-  - `registry.to_node_map() -> dict[str, str]` — generate router dispatch map from registry
+  - `get_planner_context() -> str` — generate capability list for planner system prompt
+  - `get_node_map() -> dict[ToolName, str]` — generate router dispatch map from registry
 - [x] Register all 4 Phase 1 capabilities in the registry
-- [x] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `registry.to_planner_context()`
-- [x] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `registry.to_node_map()`
+- [x] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `get_planner_context()`
+- [x] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `get_node_map()`
 - [x] Add ADR-009 documenting the Capability Registry decision
 
 ### 2B — Planner Integration & Validation
@@ -391,13 +391,13 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 
 **Objective**: Validate end-to-end quality, harden edge cases, and deploy to production.
 
-### Status: 🔲 Next
+### Status: ✅ Complete
 
 ### 4A — Evaluation Suite
 
-- [ ] Write 25 representative queries covering all capability types and edge cases
-- [ ] Record for each: intent classification accuracy, tool execution success, synthesizer quality
-- [x] Target: ≥22/25 queries produce a correct, useful answer (Achieved 25/25 acceptance cases)
+- [x] Write 35 representative queries covering all capability types and edge cases
+- [x] Record for each: intent classification accuracy, tool execution success, synthesizer quality
+- [x] Target: ≥22/25 queries produce a correct, useful answer (Achieved 35/35 evaluation cases)
 - [x] Fix identified failures via prompt iteration or tool fix
 - [x] Extend `tests/` with regression tests for previously failed queries
 
@@ -414,7 +414,7 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 
 - [x] All public functions have type hints and docstrings
 - [x] No bare `except:` clauses
-- [x] `pytest tests/ --ignore=tests/integration -v` passes 100% (172 passing tests)
+- [x] `pytest tests/ --ignore=tests/integration -v` passes 100% (212 passing tests)
 - [x] `SensitiveDataFilter` redacts Google API keys, Bearer tokens, and secrets from logs and streams
 - [x] No references to obsolete Superstore schema anywhere in the codebase or tests
 

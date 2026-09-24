@@ -29,15 +29,15 @@ LLM explains.      → Executive synthesis with mandatory [Step X] citations.
 | **Streamlit UI** | `app.py` | Renders split-screen workspace with independent chat and analysis inspector scroll containers, real-time tool trace, Plotly figures, and telemetry. |
 | **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing into a compiled executable DAG. |
 | **AgentState & State Loader** | `agent/state.py` | `TypedDict` separating persistent conversation state (`messages`) from clean per-turn execution state. `create_initial_state` resets execution fields on each turn. |
-| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using Gemini structured output. |
+| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using `BaseLLM` structured output. |
 | **Pre-Execution Validator** | `agent/validator.py` | Deterministic validator checking step numbering, DAG acyclicity, schema validation, and registered capabilities before dispatch. |
 | **Router** | `agent/router.py` | Pure-Python conditional edge. Validates step dependencies (`depends_on`) and dispatches to the correct tool node. No LLM call. |
 | **`advance_step`** | `agent/router.py` | Increments `current_step` after each tool completes, driving the multi-step loop. |
 | **Analytical Capability Nodes** | `tools/` | 13 deterministic execution nodes. Parse validated Pydantic parameters, execute DuckDB SQL or Plotly renders, and return `ToolResult`. |
 | **Capability Registry** | `utils/capability_registry.py` | Authoritative registry of all 13 analytical capabilities, input schemas, and LangGraph tool node bindings. |
 | **Data Layer** | `utils/data_loader.py` | Ingests `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, registers Bronze (`raw_dataset`) and Silver (`dataset`) DuckDB views. |
-| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini, and returns an analyst-style answer grounded entirely in tool evidence. |
-| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation using modern `google-genai` SDK. Factory in `llm/factory.py`. |
+| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls `BaseLLM`, and returns an analyst-style answer grounded entirely in tool evidence. |
+| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` (production: `gemini-3.5-flash`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) optional fallback wrapped via `FallbackLLM`. Factory in `llm/factory.py`. |
 | **Schemas** | `models/schemas.py` | Pydantic contracts: `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`, and 13 capability input schemas. |
 | **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Dataset schema summary injected dynamically. |
 | **Logging & Telemetry** | `utils/logging_config.py` | Structured run-level logging with `SensitiveDataFilter` secret redaction and rotating file handlers. |
@@ -150,7 +150,7 @@ ANALYSIS (deterministic tool execution)
    than deleting them before analysis.
 
 2. **Data quality findings become explicit `ToolResult` evidence.** The
-   `data_profile` capability (Phase 2) will surface missing values, duplicates,
+   `data_profile` capability surfaces missing values, duplicates,
    invalid dates, and statistical anomalies as structured output that the
    synthesizer can narrate honestly.
 
@@ -166,23 +166,15 @@ ANALYSIS (deterministic tool execution)
 
 ---
 
-## Capability Registry (Design Concept — Phase 2)
+## Capability Registry Architecture
 
 ### Why a Registry
 
-Currently the planner learns which tools exist from the system prompt string
-in `utils/prompts.py`. As the number of analytical capabilities grows, this
-becomes a maintenance burden:
+The **Capability Registry** (`utils/capability_registry.py`) is the single authoritative source of truth for all 13 analytical capabilities. Everything — the planner prompt context, the router's node dispatch map, and parameter contract validation — is derived dynamically from the registry.
 
-- Adding a new capability requires editing the prompt string.
-- There is no single authoritative place to look up what a capability accepts,
-  produces, or depends on.
-- The router's `_TOOL_NODE_MAP` and the planner's prompt list the same tools
-  independently — two sources of truth.
-
-The **Capability Registry** resolves this by making one module the authoritative
-inventory of all available capabilities. Everything else — the planner prompt,
-the router's dispatch map, validation logic — is derived from the registry.
+- Adding a new capability requires registering it once in the `REGISTRY` dict.
+- Input schemas, output descriptions, and category metadata are defined in one central location.
+- Planner prompts and router dispatch maps are dynamically generated from the registry, eliminating dual sources of truth.
 
 ### Capability Definition
 
@@ -190,40 +182,32 @@ Each registered capability has the following attributes:
 
 ```
 Capability
-├── name              str          — canonical identifier used in plans and routing
-├── category          str          — DATA_ACCESS | CORE_ANALYSIS | ADVANCED | PRESENTATION
-├── description       str          — one-sentence description for the planner prompt
-├── input_schema      type[BaseModel]  — Pydantic model that validates PlanStep.parameters
-├── output_schema     str          — description of what ToolResult.data will contain
-├── deterministic     bool         — True for all DuckDB/Plotly tools; False if LLM involved
-├── dependencies      list[str]    — capabilities that should run before this one
-├── independent       bool         — can run as the first (or only) step in a plan
-└── consumes_previous_results bool — requires data from a prior ToolResult (e.g. charts)
+├── name                      str              — canonical identifier used in plans and routing
+├── category                  str              — DATA_ACCESS | CORE_ANALYSIS | ADVANCED | PRESENTATION
+├── description               str              — one-sentence description for the planner prompt
+├── input_schema              type[BaseModel]  — Pydantic model that validates PlanStep.parameters
+├── output_description        str              — description of what ToolResult.data will contain
+├── deterministic             bool             — True for all DuckDB/Plotly tools; False if LLM involved
+├── independent               bool             — can run as the first (or only) step in a plan
+├── consumes_previous_results bool             — requires data from a prior ToolResult (e.g. charts)
+└── node_name                 str              — LangGraph node name used in router dispatch map
 ```
 
-### Phase 2 Behaviour
+### Registry-Derived Integration
 
-In Phase 2 the planner prompt will be generated dynamically from the registry:
+The planner system prompt dynamically retrieves the capability context via:
 
 ```python
-# Pseudocode — not yet implemented
-registry.to_planner_context() -> str
-# Returns a formatted summary of all registered capabilities,
-# their input parameters, and their output contracts,
-# injected into the system prompt alongside the dataset schema.
+get_planner_context() -> str
 ```
+Returns a formatted summary of all 13 registered capabilities, their input parameters, and output contracts, injected dynamically into `PLANNER_SYSTEM_PROMPT` alongside the dataset schema.
 
-The router's dispatch map will also be derived from the registry:
+The router's node dispatch map is derived from the registry via:
 
 ```python
-# Pseudocode — not yet implemented
-registry.to_node_map() -> dict[str, str]
-# Returns {capability_name: langgraph_node_name} for conditional edge wiring.
+get_node_map() -> dict[ToolName, str]
 ```
-
-> **Do not create a second source of truth.** Once the registry exists, the
-> current `_TOOL_NODE_MAP` in `router.py` and the capability list in
-> `PLANNER_SYSTEM_PROMPT` should be generated from it.
+Returns `{ToolName(cap.name): cap.node_name}` for conditional edge routing.
 
 ---
 
@@ -233,33 +217,34 @@ registry.to_node_map() -> dict[str, str]
 
 | Capability | Description | Status |
 |---|---|---|
-| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Phase 2 — Implemented |
-| `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Phase 1 — Implemented |
+| `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Implemented |
+| `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Implemented |
+| `data_clean` | Interactive dimension hygiene: casing standardization, fuzzy typo clustering (e.g. `Easst` → `East`), and null value imputation on Silver `dataset` view | ✅ Implemented |
 
 ### CORE ANALYSIS
 
 | Capability | Description | Status |
 |---|---|---|
-| `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Phase 1 — Implemented |
-| `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Phase 1 — Implemented |
-| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | ✅ Phase 2 — Implemented |
-| `contribution` | Percentage and absolute contribution of segments to a total | ✅ Phase 2 — Implemented |
-| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | ✅ Phase 2 — Implemented |
-| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | ✅ Phase 2 — Implemented |
+| `metrics` | Aggregated computations: SUM, AVG, COUNT, MIN, MAX with GROUP BY and ranking | ✅ Implemented |
+| `trends` | Temporal aggregations over `Date` at day/week/month/quarter/year granularity | ✅ Implemented |
+| `compare` | Side-by-side comparison of two entities or periods with absolute and percentage delta | ✅ Implemented |
+| `contribution` | Percentage and absolute contribution of segments to a total | ✅ Implemented |
+| `profitability` | Revenue, cost, profit, and derived profit margin analysis (Profit / Revenue) | ✅ Implemented |
+| `variance` | Period-over-period or group-to-group change: baseline, comparison, absolute delta, % delta | ✅ Implemented |
 
 ### ADVANCED ANALYSIS
 
 | Capability | Description | Status |
 |---|---|---|
-| `anomaly_detection` | Statistical detection of unusual observations (IQR, z-score) — no ML required | 🔲 Phase 3 |
-| `correlation` | Pearson correlation between numeric fields — explicitly not causal inference | 🔲 Phase 3 |
-| `segmentation` | Cross-dimensional analysis: Region × Category, Salesperson × Category, etc. | 🔲 Phase 3 |
+| `anomaly_detection` | Statistical detection of unusual observations (IQR, z-score) — no ML required | ✅ Implemented |
+| `correlation` | Pearson correlation between numeric fields — explicitly not causal inference | ✅ Implemented |
+| `segmentation` | Cross-dimensional analysis: Region × Category, Salesperson × Category, etc. | ✅ Implemented |
 
 ### PRESENTATION
 
 | Capability | Description | Status |
 |---|---|---|
-| `charts` | Plotly figure generation (bar, line, scatter) from prior ToolResult data — no DuckDB query | ✅ Phase 1 — Implemented |
+| `charts` | Plotly figure generation (bar, line, scatter) from prior ToolResult data — no DuckDB query | ✅ Implemented |
 
 ---
 
@@ -762,9 +747,7 @@ errors: list[str]
 **Context window**: System prompt + last 10 `messages` + dataset schema summary + current `query`.
 History truncation is hard-coded at 10 turns in `_build_planner_messages`.
 
-**Phase 2 change**: The system prompt's capability list will be generated from the
-Capability Registry rather than a hand-written string. Parameter schemas for new
-capabilities (`compare`, `contribution`, etc.) will be injected automatically.
+**Registry Integration**: The system prompt's capability list is dynamically generated from the Capability Registry (`get_planner_context()`). Parameter schemas for all registered capabilities are injected automatically.
 
 ---
 
@@ -796,10 +779,7 @@ Not a node — called by LangGraph's conditional edge mechanism after `router` e
 | 5 | `selected_tools[current_step]` is a known `ToolName` | node name from `_TOOL_NODE_MAP` |
 | 6 | `selected_tools[current_step]` is unknown | `"error_handler"` |
 
-**Phase 2**: Dependency validation (priority 4) already exists and validates that
-referenced step numbers have completed successfully. As new capabilities are added,
-the router will also validate that the capability's required input types are satisfied
-by prior `ToolResult` data.
+**Dependency & Pre-Execution Validation**: Dependency validation (priority 4) verifies that referenced step numbers have completed successfully. Pre-execution plan validation (`agent/validator.py`) additionally validates parameter schemas and DAG acyclicity before tool dispatch.
 
 ---
 
@@ -986,18 +966,11 @@ Step 3: metrics
   depends_on: []    ← independent; can run alongside Step 1 conceptually
 ```
 
-### What the Router Currently Validates
+### Plan & Pre-Execution Validation Rules
 
-- Referenced `step_number` in `depends_on` has a corresponding `ToolResult`.
-- That `ToolResult` has `success=True`.
-
-### What the Router Will Validate in Phase 2
-
-- All current checks, plus:
-- The capability's required input type (e.g. `charts` requires list data)
-  is present in the referenced `ToolResult.data`.
-- The `parameters` dict validates against the capability's `input_schema`
-  before the tool node runs (fail fast, not mid-execution).
+- Referenced `step_number` in `depends_on` has a corresponding `ToolResult` with `success=True`.
+- The capability's required input type (e.g. `charts` requires list data) is present in the referenced `ToolResult.data`.
+- The `parameters` dict validates against the capability's `input_schema` before the tool node runs via `agent/validator.py` (failing fast with structured error guidance).
 
 ---
 

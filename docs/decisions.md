@@ -529,3 +529,27 @@ The legacy `google-generativeai` package has reached end-of-support and produces
 - **Positive**: Full operational telemetry across every analytical turn.
 - **Positive**: Future-proof compatibility with modern Google Gemini models (`gemini-2.5-flash`).
 
+---
+
+## ADR-011 — Two-Tier Bronze/Silver Data Layer & Dimension Hygiene Isolation
+
+**Date**: 2026-09-23
+**Status**: Accepted
+
+### Context
+
+Enterprise users frequently request data cleaning, typo standardization (e.g. `Easst` $\to$ `East`, `MOBLIE` $\to$ `Mobile`), and missing value imputation. If mutations are applied directly to the canonical source file or global in-memory tables, raw data integrity is compromised, and resetting or comparing before-and-after distributions becomes impossible.
+
+### Decision
+
+Implement an explicit two-tier Medallion architecture within DuckDB and session memory:
+1. **Bronze (`raw_dataset`)**: Immutable view created directly from the canonical source file (`data/Sales_Dataset_2024.xlsx`). Never modified by cleaning operations.
+2. **Silver (`dataset`)**: Active working view utilized by analytical tools (`metrics`, `trends`, `profitability`, `compare`, `charts`). Mutations performed by `data_clean` operate exclusively on this view.
+3. **Session Reset (`reset_to_raw_dataset()`)**: Re-clones the Silver view from Bronze instantaneously whenever requested by the user or benchmark runners.
+
+### Consequences
+
+- **Positive**: Strict data lineage preservation — raw source data is never permanently corrupted.
+- **Positive**: Enables comparative before/after auditing across multi-turn cleaning conversations.
+- **Positive**: Seamless deterministic reset between test cases in automated test runners.
+

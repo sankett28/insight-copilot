@@ -113,7 +113,7 @@ Detailed benchmark breakdown is documented in [`docs/evaluation-results.md`](doc
 * **Analytical Engine**: In-memory DuckDB OLAP engine over Apache Parquet
 * **Visualizations**: Plotly Graph Objects (dark-themed responsive charts)
 * **User Interface**: Streamlit (split-screen layout with chat, trace, and telemetry)
-* **Testing & Quality**: pytest with 159 automated regression unit tests
+* **Testing & Quality**: pytest with 172 automated regression unit tests
 
 ---
 
@@ -161,7 +161,7 @@ Open `http://localhost:8501` in your browser.
 ## Running the Test Suite
 
 ```powershell
-# Run full unit regression suite (159 tests passing, zero warnings)
+# Run full unit regression suite (172 tests passing, zero warnings)
 .venv\Scripts\pytest tests/ --ignore=tests/integration -v
 
 # Run automated evaluation & benchmark harness
@@ -176,6 +176,7 @@ Open `http://localhost:8501` in your browser.
 ## Architecture Decisions & Documentation
 
 * [`docs/architecture.md`](docs/architecture.md): Detailed architectural components, graph state flow, and capability contracts.
-* [`docs/decisions.md`](docs/decisions.md): Architecture Decision Records (ADRs 1–10).
+* [`docs/decisions.md`](docs/decisions.md): Architecture Decision Records (ADRs 1–11).
+* [`docs/development-plan.md`](docs/development-plan.md): Master development plan and phase deliverables.
 * [`docs/hardening-plan.md`](docs/hardening-plan.md): Master multi-phase hardening plan and quality gates.
 * [`docs/evaluation-results.md`](docs/evaluation-results.md): Full 35-case benchmark scorecard.

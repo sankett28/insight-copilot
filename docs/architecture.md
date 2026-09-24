@@ -1,9 +1,6 @@
 # Architecture — Insight Copilot
 
-> **Accuracy note**: This document describes the architecture as it exists in the
-> current repository and as it is designed to evolve. Phase 1 is complete.
-> Phase 2 is the current design target.
-> See [`docs/development-plan.md`](development-plan.md) for full phase status.
+> **System Status**: Full Release Candidate architecture incorporating all 13 deterministic analytical capabilities, two-tier Bronze/Silver data architecture, pre-execution plan validation, dependency-aware routing, Google GenAI SDK integration, and full operational telemetry.
 
 ---
 
@@ -20,27 +17,30 @@ Every number in Insight Copilot's answers comes from DuckDB, not from the LLM.
 The LLM contributes language — understanding, planning, and narration — not computation.
 
 ```
-LLM decides.
-Deterministic code executes.
-LLM explains.
+LLM decides.       → Structured AnalysisPlan with typed PlanStep contracts.
+Deterministic code executes. → Parameterized DuckDB SQL & Plotly rendering.
+LLM explains.      → Executive synthesis with mandatory [Step X] citations.
 ```
 
 ### Major Components
 
 | Component | File(s) | Responsibility |
 |---|---|---|
-| **Streamlit UI** | `app.py` | Renders chat panel, visible execution plan, tool trace, and Plotly charts. |
-| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing into a compiled executable graph. |
+| **Streamlit UI** | `app.py` | Renders split-screen workspace with independent chat and analysis inspector scroll containers, real-time tool trace, Plotly figures, and telemetry. |
+| **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing into a compiled executable DAG. |
 | **AgentState & State Loader** | `agent/state.py` | `TypedDict` separating persistent conversation state (`messages`) from clean per-turn execution state. `create_initial_state` resets execution fields on each turn. |
 | **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using Gemini structured output. |
+| **Pre-Execution Validator** | `agent/validator.py` | Deterministic validator checking step numbering, DAG acyclicity, schema validation, and registered capabilities before dispatch. |
 | **Router** | `agent/router.py` | Pure-Python conditional edge. Validates step dependencies (`depends_on`) and dispatches to the correct tool node. No LLM call. |
 | **`advance_step`** | `agent/router.py` | Increments `current_step` after each tool completes, driving the multi-step loop. |
-| **Analytical Capability Nodes** | `tools/` | Deterministic execution nodes. Parse validated Pydantic parameters, execute DuckDB SQL or Plotly renders, and return `ToolResult`. |
-| **Data Layer** | `utils/data_loader.py` | Converts `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, validates schema and row count, registers the DuckDB `dataset` view. |
+| **Analytical Capability Nodes** | `tools/` | 13 deterministic execution nodes. Parse validated Pydantic parameters, execute DuckDB SQL or Plotly renders, and return `ToolResult`. |
+| **Capability Registry** | `utils/capability_registry.py` | Authoritative registry of all 13 analytical capabilities, input schemas, and LangGraph tool node bindings. |
+| **Data Layer** | `utils/data_loader.py` | Ingests `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, registers Bronze (`raw_dataset`) and Silver (`dataset`) DuckDB views. |
 | **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini, and returns an analyst-style answer grounded entirely in tool evidence. |
-| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation. Factory in `llm/factory.py`. |
-| **Schemas** | `models/schemas.py` | Pydantic contracts: `MetricsRequest`, `TrendsRequest`, `DataQueryRequest`, `ChartRequest`, `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`. |
+| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation using modern `google-genai` SDK. Factory in `llm/factory.py`. |
+| **Schemas** | `models/schemas.py` | Pydantic contracts: `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`, and 13 capability input schemas. |
 | **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Dataset schema summary injected dynamically. |
+| **Logging & Telemetry** | `utils/logging_config.py` | Structured run-level logging with `SensitiveDataFilter` secret redaction and rotating file handlers. |
 
 ---
 
@@ -48,50 +48,47 @@ LLM explains.
 
 ```mermaid
 flowchart TD
-    U([User]) -->|natural language question| ST[Streamlit UI\napp.py]
+    U([User / Business Leader]) -->|Natural Language Question| ST[Streamlit UI\napp.py]
     ST -->|create_initial_state| START([START])
 
     START --> PL[planner\nagent/planner.py]
-    PL -->|intent, plan,\nselected_tools, current_step=0| RT[router\nagent/router.py]
+    PL -->|AnalysisPlan with typed PlanSteps| VAL[validator\nagent/validator.py]
+    VAL -->|Validated Plan| RT[router\nagent/router.py]
 
-    subgraph CR["Capability Registry (Phase 2 Design Target)"]
-        CAPLIST["Available capabilities\n• data_query  • metrics  • trends  • charts\n• data_profile  • compare  • contribution\n• profitability  • variance\n• anomaly_detection  • correlation  • segmentation"]
+    subgraph CR["Authoritative Capability Registry (13 Registered Tools)"]
+        CAPLIST["Available Capabilities:\n• data_profile  • data_query  • data_clean\n• metrics  • trends  • compare  • contribution\n• profitability  • variance\n• anomaly_detection  • correlation  • segmentation\n• charts"]
     end
 
-    PL -. "schema + capability list\n(Phase 2)" .-> CR
+    PL -. "Injected Capabilities & Schema" .-> CR
+    VAL -. "Schema & Registry Check" .-> CR
 
-    RT -->|errors / failed dependency| EH[error_handler]
-    RT -->|no tools OR step >= len| SY[synthesizer\nagent/synthesizer.py]
-    RT -->|data_query| DQ[data_query\ntools/data_query.py]
-    RT --> MT[metrics\ntools/metrics.py]
-    RT --> TR[trends\ntools/trends.py]
-    RT --> CH[charts\ntools/charts.py]
+    RT -->|Pre-execution Error / Failed Dependency| EH[error_handler\nagent/router.py]
+    RT -->|All steps complete / empty plan| SY[synthesizer\nagent/synthesizer.py]
+    
+    RT -->|1. data_access| DA[data_query / data_profile / data_clean]
+    RT -->|2. core_analytics| CA[metrics / trends / compare / contribution / profitability / variance]
+    RT -->|3. advanced_stats| AS[anomaly_detection / correlation / segmentation]
+    RT -->|4. presentation| CH[charts]
 
-    DQ & MT & TR & CH -->|ToolResult appended| SA[step_advance\nagent/router.py]
+    DA & CA & AS & CH -->|ToolResult appended| SA[step_advance\nagent/router.py]
     SA -->|current_step + 1| RT
 
-    DQ & MT & TR -->|parameterised SQL| DB[(DuckDB View 'dataset'\nsales_dataset.parquet)]
-    DB -->|rows as list of dicts| DQ & MT & TR
+    DA & CA & AS -->|Parameterized SQL| DB[(DuckDB Session Views:\n'raw_dataset' Bronze\n'dataset' Silver)]
+    DB -->|Verified Result Rows| DA & CA & AS
 
-    TR & MT & DQ -..->|data list consumed by| CH
+    CA & DA & AS -..->|Upstream Data Rows| CH
 
-    SY -->|final_answer,\nassistant Message| END_([END])
-    EH -->|final_answer with error| END_
+    SY -->|final_answer with [Step X] Citations| END_([END])
+    EH -->|final_answer with Diagnostic Guidance| END_
 
-    subgraph LLM["Gemini (google-generativeai)"]
-        PL_LLM[structured_chat\nJSON mode → AnalysisPlan]
-        SY_LLM[chat\ntemperature=0.3]
+    subgraph LLM["Gemini Engine (google-genai SDK)"]
+        PL_LLM[structured_chat\nAnalysisPlan response_schema]
+        SY_LLM[chat\nGrounding & Synthesis]
     end
 
-    PL -.- |messages + schema summary| PL_LLM
-    SY -.- |messages + verified tool data| SY_LLM
+    PL -.- |Prompt + Schema + History| PL_LLM
+    SY -.- |Prompt + Tool Results + History| SY_LLM
 ```
-
-> The **Capability Registry** box above is a **Phase 2 design target**.
-> It does not yet exist as a runtime component.
-> Currently the planner is aware of four capabilities injected via the system prompt.
-> In Phase 2 it will be formally registered so the planner prompt is generated
-> from a single authoritative source.
 
 ---
 

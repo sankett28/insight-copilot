@@ -62,7 +62,7 @@ flowchart TD
 | `Units_Sold` | DOUBLE | Metric | Transaction quantity volume |
 | `Unit_Price` | DOUBLE | Metric | Unit sales pricing |
 | `Revenue` | DOUBLE | Metric | Total transaction revenue |
-| `Cost` | DOUBLE | Metric | Cost of goods sold |
+| `Cost` | DOUBLE | Metric | Recorded transaction cost |
 | `Profit` | DOUBLE | Metric | Net transaction profit |
 
 ---
@@ -108,12 +108,29 @@ Detailed benchmark breakdown is documented in [`docs/evaluation-results.md`](doc
 
 * **Language & Runtime**: Python 3.12+
 * **Orchestration**: LangGraph StateGraph (DAG-based state machine)
-* **LLM Engine**: Modern Google GenAI SDK (`google-genai` library)
+* **LLM Architecture**: Provider-agnostic `BaseLLM` interface with `GeminiLLM` (`gemini-3.5-flash-lite`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) fallback wrapped in `FallbackLLM`.
 * **Contract Validation**: Pydantic v2
 * **Analytical Engine**: In-memory DuckDB OLAP engine over Apache Parquet
 * **Visualizations**: Plotly Graph Objects (dark-themed responsive charts)
-* **User Interface**: Streamlit (split-screen layout with chat, trace, and telemetry)
-* **Testing & Quality**: pytest with 172 automated regression unit tests
+* **User Interface**: Streamlit (split-screen layout with chat workspace, trace, SQL/data inspector, and telemetry)
+* **Testing & Quality**: pytest with 212 automated regression unit tests
+
+---
+
+## Assignment Requirements Alignment
+
+| Requirement | Implementation Verification |
+|---|---|
+| **LangGraph StateGraph** | Compiled DAG orchestration in `agent/graph.py` with static and conditional routing edges. |
+| **Typed State** | `AgentState` TypedDict in `agent/state.py` with turn reset isolation (`create_initial_state`). |
+| **Conditional Routing** | `router_node` in `agent/router.py` evaluating step dependencies (`depends_on`) dynamically. |
+| **Visible Execution Plan / Rationale** | Displayed in real-time in the Analysis Inspector panel before tool execution. |
+| **3+ Deterministic Tools** | 13 deterministic capabilities in `tools/` with Pydantic contracts and DuckDB SQL execution. |
+| **Genuine Tool Selection & Multi-Tool Sequences** | Multi-step DAG planning (e.g. `data_clean` $\to$ `metrics` $\to$ `charts`). |
+| **Insight Synthesis** | Synthesizer node in `agent/synthesizer.py` generating executive answers with mandatory `[Step N]` citations. |
+| **Multi-Turn Conversation** | Full conversation history preserved across turns via `st.session_state["messages"]`. |
+| **Public Hosted Deployment** | Deployed live on Streamlit Cloud with zero local setup required for evaluation. |
+| **Architecture Documentation** | Complete suite in `docs/` (`architecture.md`, `decisions.md`, `development-plan.md`, `hardening-plan.md`, `evaluation-results.md`). |
 
 ---
 
@@ -141,12 +158,15 @@ pip install -r requirements.txt
 ### 2. Configure Environment
 ```powershell
 copy .env.example .env
-# Edit .env and supply your GEMINI_API_KEY
+# Edit .env and supply your GEMINI_API_KEY (and optional GROQ_API_KEY)
 ```
 
 ```env
 GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
+GROQ_API_KEY=your-groq-api-key-here
+GROQ_MODEL=openai/gpt-oss-120b
+LLM_PROVIDER=gemini
 LOG_LEVEL=INFO
 ```
 
@@ -158,16 +178,33 @@ Open `http://localhost:8501` in your browser.
 
 ---
 
+## Production Deployment & Secrets
+
+Insight Copilot is deployed publicly on Streamlit Cloud. 
+
+- **Bundled Dataset**: The canonical dataset `data/Sales_Dataset_2024.xlsx` is bundled in the repository, enabling immediate turn-key evaluation without uploading files.
+- **Secrets Management**: No API keys or credentials are committed to version control (`.env` is `.gitignore`d). On Streamlit Cloud, keys are configured under **Advanced settings ➔ Secrets**:
+
+```toml
+GEMINI_API_KEY = "your_real_gemini_api_key"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+GROQ_API_KEY = "your_real_groq_api_key"
+GROQ_MODEL = "openai/gpt-oss-120b"
+LLM_PROVIDER = "gemini"
+```
+
+---
+
 ## Running the Test Suite
 
 ```powershell
-# Run full unit regression suite (172 tests passing, zero warnings)
+# Run full unit regression suite (212 tests passing, zero warnings)
 .venv\Scripts\pytest tests/ --ignore=tests/integration -v
 
 # Run automated evaluation & benchmark harness
 .venv\Scripts\python tests/evaluation/run_eval.py --output docs/evaluation-results.md
 
-# Run live Gemini integration tests (requires GEMINI_API_KEY)
+# Run live integration tests (requires GEMINI_API_KEY)
 .venv\Scripts\pytest tests/integration/ -v
 ```
 
@@ -176,7 +213,7 @@ Open `http://localhost:8501` in your browser.
 ## Architecture Decisions & Documentation
 
 * [`docs/architecture.md`](docs/architecture.md): Detailed architectural components, graph state flow, and capability contracts.
-* [`docs/decisions.md`](docs/decisions.md): Architecture Decision Records (ADRs 1–11).
+* [`docs/decisions.md`](docs/decisions.md): Architecture Decision Records (ADRs 1–12).
 * [`docs/development-plan.md`](docs/development-plan.md): Master development plan and phase deliverables.
 * [`docs/hardening-plan.md`](docs/hardening-plan.md): Master multi-phase hardening plan and quality gates.
 * [`docs/evaluation-results.md`](docs/evaluation-results.md): Full 35-case benchmark scorecard.

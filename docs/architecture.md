@@ -29,15 +29,15 @@ LLM explains.      → Executive synthesis with mandatory [Step X] citations.
 | **Streamlit UI** | `app.py` | Renders split-screen workspace with independent chat and analysis inspector scroll containers, real-time tool trace, Plotly figures, and telemetry. |
 | **LangGraph StateGraph** | `agent/graph.py` | Wires all nodes, static edges, and conditional routing into a compiled executable DAG. |
 | **AgentState & State Loader** | `agent/state.py` | `TypedDict` separating persistent conversation state (`messages`) from clean per-turn execution state. `create_initial_state` resets execution fields on each turn. |
-| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using Gemini structured output. |
+| **Planner** | `agent/planner.py` | LLM node. Classifies intent and produces a structured `AnalysisPlan` with typed `PlanStep` parameters using `BaseLLM` structured output. |
 | **Pre-Execution Validator** | `agent/validator.py` | Deterministic validator checking step numbering, DAG acyclicity, schema validation, and registered capabilities before dispatch. |
 | **Router** | `agent/router.py` | Pure-Python conditional edge. Validates step dependencies (`depends_on`) and dispatches to the correct tool node. No LLM call. |
 | **`advance_step`** | `agent/router.py` | Increments `current_step` after each tool completes, driving the multi-step loop. |
 | **Analytical Capability Nodes** | `tools/` | 13 deterministic execution nodes. Parse validated Pydantic parameters, execute DuckDB SQL or Plotly renders, and return `ToolResult`. |
 | **Capability Registry** | `utils/capability_registry.py` | Authoritative registry of all 13 analytical capabilities, input schemas, and LangGraph tool node bindings. |
 | **Data Layer** | `utils/data_loader.py` | Ingests `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, registers Bronze (`raw_dataset`) and Silver (`dataset`) DuckDB views. |
-| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls Gemini, and returns an analyst-style answer grounded entirely in tool evidence. |
-| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` implementation using modern `google-genai` SDK. Factory in `llm/factory.py`. |
+| **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls `BaseLLM`, and returns an analyst-style answer grounded entirely in tool evidence. |
+| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` (`gemini-3.5-flash-lite`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) fallback wrapped via `FallbackLLM`. Factory in `llm/factory.py`. |
 | **Schemas** | `models/schemas.py` | Pydantic contracts: `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`, and 13 capability input schemas. |
 | **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Dataset schema summary injected dynamically. |
 | **Logging & Telemetry** | `utils/logging_config.py` | Structured run-level logging with `SensitiveDataFilter` secret redaction and rotating file handlers. |

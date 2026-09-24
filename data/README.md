@@ -18,7 +18,7 @@ The repository includes a bundled canonical enterprise dataset (`Sales_Dataset_2
 | `Units_Sold` | DOUBLE | Metric | Unit transaction volume |
 | `Unit_Price` | DOUBLE | Metric | Per-unit selling price |
 | `Revenue` | DOUBLE | Metric | Total transaction revenue |
-| `Cost` | DOUBLE | Metric | Cost of goods sold (COGS) |
+| `Cost` | DOUBLE | Metric | Recorded transaction cost |
 | `Profit` | DOUBLE | Metric | Net transaction profit |
 
 ## Data Layer Architecture

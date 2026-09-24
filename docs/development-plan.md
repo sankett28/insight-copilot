@@ -391,13 +391,13 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 
 **Objective**: Validate end-to-end quality, harden edge cases, and deploy to production.
 
-### Status: 🔲 Next
+### Status: ✅ Complete
 
 ### 4A — Evaluation Suite
 
-- [ ] Write 25 representative queries covering all capability types and edge cases
-- [ ] Record for each: intent classification accuracy, tool execution success, synthesizer quality
-- [x] Target: ≥22/25 queries produce a correct, useful answer (Achieved 25/25 acceptance cases)
+- [x] Write 35 representative queries covering all capability types and edge cases
+- [x] Record for each: intent classification accuracy, tool execution success, synthesizer quality
+- [x] Target: ≥22/25 queries produce a correct, useful answer (Achieved 35/35 evaluation cases)
 - [x] Fix identified failures via prompt iteration or tool fix
 - [x] Extend `tests/` with regression tests for previously failed queries
 
@@ -414,7 +414,7 @@ chart rendering. Add advanced analytical capabilities for statistical investigat
 
 - [x] All public functions have type hints and docstrings
 - [x] No bare `except:` clauses
-- [x] `pytest tests/ --ignore=tests/integration -v` passes 100% (172 passing tests)
+- [x] `pytest tests/ --ignore=tests/integration -v` passes 100% (212 passing tests)
 - [x] `SensitiveDataFilter` redacts Google API keys, Bearer tokens, and secrets from logs and streams
 - [x] No references to obsolete Superstore schema anywhere in the codebase or tests
 

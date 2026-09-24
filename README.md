@@ -187,7 +187,7 @@ Insight Copilot is deployed publicly on Streamlit Cloud.
 
 ```toml
 GEMINI_API_KEY = "your_real_gemini_api_key"
-GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_MODEL = "gemini-3.5-flash"
 GROQ_API_KEY = "your_real_groq_api_key"
 GROQ_MODEL = "openai/gpt-oss-120b"
 LLM_PROVIDER = "gemini"

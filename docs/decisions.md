@@ -572,7 +572,7 @@ Free-tier and API rate limits (`429 RESOURCE_EXHAUSTED` or `503 SERVICE_UNAVAILA
 
 ### Consequences
 
-- **Positive**: Zero downtime on rate limits — session turns complete seamlessly via Groq fallback.
+- **Positive**: Transparent failover on rate limits — when the primary provider encounters transient 429 or 503 rate limit errors, session turns fail over seamlessly to Groq without state corruption or user-facing crashes.
 - **Positive**: Complete abstraction — planner and synthesizer nodes remain 100% agnostic of provider failover.
 - **Positive**: Comprehensive unit test coverage verifying fallback triggers (`tests/test_fallback_llm.py`).
 

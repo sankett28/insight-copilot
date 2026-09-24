@@ -198,16 +198,16 @@ Capability
 The planner system prompt dynamically retrieves the capability context via:
 
 ```python
-get_capability_registry().to_planner_context() -> str
+get_planner_context() -> str
 ```
 Returns a formatted summary of all 13 registered capabilities, their input parameters, and output contracts, injected dynamically into `PLANNER_SYSTEM_PROMPT` alongside the dataset schema.
 
 The router's node dispatch map is derived from the registry via:
 
 ```python
-get_capability_registry().to_node_map() -> dict[str, str]
+get_node_map() -> dict[ToolName, str]
 ```
-Returns `{capability_name: langgraph_node_name}` for conditional edge routing.
+Returns `{ToolName(cap.name): cap.node_name}` for conditional edge routing.
 
 ---
 
@@ -746,9 +746,7 @@ errors: list[str]
 **Context window**: System prompt + last 10 `messages` + dataset schema summary + current `query`.
 History truncation is hard-coded at 10 turns in `_build_planner_messages`.
 
-**Phase 2 change**: The system prompt's capability list will be generated from the
-Capability Registry rather than a hand-written string. Parameter schemas for new
-capabilities (`compare`, `contribution`, etc.) will be injected automatically.
+**Registry Integration**: The system prompt's capability list is dynamically generated from the Capability Registry (`get_planner_context()`). Parameter schemas for all registered capabilities are injected automatically.
 
 ---
 
@@ -780,10 +778,7 @@ Not a node — called by LangGraph's conditional edge mechanism after `router` e
 | 5 | `selected_tools[current_step]` is a known `ToolName` | node name from `_TOOL_NODE_MAP` |
 | 6 | `selected_tools[current_step]` is unknown | `"error_handler"` |
 
-**Phase 2**: Dependency validation (priority 4) already exists and validates that
-referenced step numbers have completed successfully. As new capabilities are added,
-the router will also validate that the capability's required input types are satisfied
-by prior `ToolResult` data.
+**Dependency & Pre-Execution Validation**: Dependency validation (priority 4) verifies that referenced step numbers have completed successfully. Pre-execution plan validation (`agent/validator.py`) additionally validates parameter schemas and DAG acyclicity before tool dispatch.
 
 ---
 
@@ -970,18 +965,11 @@ Step 3: metrics
   depends_on: []    ← independent; can run alongside Step 1 conceptually
 ```
 
-### What the Router Currently Validates
+### Plan & Pre-Execution Validation Rules
 
-- Referenced `step_number` in `depends_on` has a corresponding `ToolResult`.
-- That `ToolResult` has `success=True`.
-
-### What the Router Will Validate in Phase 2
-
-- All current checks, plus:
-- The capability's required input type (e.g. `charts` requires list data)
-  is present in the referenced `ToolResult.data`.
-- The `parameters` dict validates against the capability's `input_schema`
-  before the tool node runs (fail fast, not mid-execution).
+- Referenced `step_number` in `depends_on` has a corresponding `ToolResult` with `success=True`.
+- The capability's required input type (e.g. `charts` requires list data) is present in the referenced `ToolResult.data`.
+- The `parameters` dict validates against the capability's `input_schema` before the tool node runs via `agent/validator.py` (failing fast with structured error guidance).
 
 ---
 

@@ -377,15 +377,26 @@ def run_single_turn(
     latencies = {"total_ms": round(total_latency_ms, 2)}
 
     # Extract citations [Step X]
-    citations = [
-        int(m) for m in re.findall(r"\[Step\s*(\d+)\]", response, re.IGNORECASE)
-    ]
+import argparse
 
-    # Evaluate checks
+def evaluate_turn_checks(
+    turn_res_data: dict[str, Any],
+    checks: dict[str, Any] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """Evaluate deterministic silent-correctness assertions on a single turn."""
     passed_checks: list[str] = []
     failed_checks: list[str] = []
+    silent_notes: list[str] = []
 
     checks = checks or {}
+    selected_tools = turn_res_data.get("tools", [])
+    response = turn_res_data.get("synthesizer_response", "")
+    errors = turn_res_data.get("errors", [])
+    plan_steps = turn_res_data.get("plan_steps", [])
+    tool_results = turn_res_data.get("tool_results", [])
+    citations = turn_res_data.get("citations", [])
+
+    # 1. Expected Tools check
     expected_tools = checks.get("expected_tools")
     if expected_tools:
         if any(t in selected_tools for t in expected_tools):
@@ -395,6 +406,17 @@ def run_single_turn(
                 f"Selected tools {selected_tools} did not match expected {expected_tools}"
             )
 
+    # 2. Exact Tool Sequence check
+    exact_sequence = checks.get("exact_sequence")
+    if exact_sequence:
+        if selected_tools == exact_sequence:
+            passed_checks.append(f"Exact tool sequence matched {exact_sequence}")
+        else:
+            failed_checks.append(
+                f"Selected tools {selected_tools} did not match exact sequence {exact_sequence}"
+            )
+
+    # 3. Disallowed Tools check
     disallowed_tools = checks.get("disallowed_tools")
     if disallowed_tools:
         if any(t in selected_tools for t in disallowed_tools):
@@ -406,6 +428,7 @@ def run_single_turn(
                 f"Properly avoided disallowed tools {disallowed_tools}"
             )
 
+    # 4. Must Contain Keywords check
     must_contain = checks.get("must_contain_keywords")
     if must_contain:
         for kw in must_contain:
@@ -414,10 +437,95 @@ def run_single_turn(
             else:
                 failed_checks.append(f"Missing keyword '{kw}'")
 
+    # 5. Citation Audit (Silent-Correctness Gate)
+    if tool_results and not errors:
+        valid_steps = {r.get("step") for r in tool_results if r.get("step")}
+        if citations:
+            invalid_citations = set(citations) - valid_steps
+            if invalid_citations:
+                failed_checks.append(f"Hallucinated citations for non-existent steps: {invalid_citations}")
+            else:
+                passed_checks.append(f"Citations {citations} strictly refer to valid steps {valid_steps}")
+        else:
+            silent_notes.append("No explicit [Step X] citations in response text.")
+
+    # 6. Tool Result Integrity
+    for res in tool_results:
+        if res.get("success") is False:
+            failed_checks.append(f"Tool {res.get('tool')} (step {res.get('step')}) reported failure: {res.get('error')}")
+        else:
+            passed_checks.append(f"Tool {res.get('tool')} (step {res.get('step')}) executed successfully")
+
+    # 7. Response Integrity
     if not errors and response:
         passed_checks.append("Generated successful response without error")
     elif errors:
         failed_checks.append(f"Execution errors: {errors}")
+
+    return passed_checks, failed_checks, silent_notes
+
+
+def run_single_turn(
+    compiled_graph: Any,
+    query: str,
+    history: list[Message] | None = None,
+    checks: dict[str, Any] | None = None,
+) -> tuple[TurnResult, list[Message]]:
+    """Execute a single query turn through the compiled graph."""
+    if history is None:
+        history = []
+
+    initial_state = create_initial_state(query=query, history=history)
+
+    t_start = time.perf_counter()
+    final_state = compiled_graph.invoke(initial_state)
+    t_end = time.perf_counter()
+
+    plan = final_state.get("plan")
+    intent = final_state.get("intent", "unknown")
+    selected_tools = [str(t.value if hasattr(t, "value") else t) for t in final_state.get("selected_tools", [])]
+
+    plan_steps_data = []
+    if plan and hasattr(plan, "steps") and plan.steps:
+        for s in plan.steps:
+            plan_steps_data.append({
+                "step": getattr(s, "step", None),
+                "tool": getattr(s, "tool", None),
+                "parameters": getattr(s, "parameters", {}),
+                "depends_on": getattr(s, "depends_on", []),
+            })
+
+    tool_results_data = []
+    for r in final_state.get("tool_results", []):
+        tool_results_data.append({
+            "step": getattr(r, "step", None),
+            "tool": getattr(r, "tool", None),
+            "success": getattr(r, "success", True),
+            "error": getattr(r, "error", None),
+            "result": getattr(r, "result", None),
+        })
+
+    response = final_state.get("final_answer") or ""
+    errors = final_state.get("errors", [])
+
+    total_latency_ms = (t_end - t_start) * 1000
+    latencies = {"total_ms": round(total_latency_ms, 2)}
+
+    # Extract citations [Step X]
+    citations = [
+        int(m) for m in re.findall(r"\[Step\s*(\d+)\]", response, re.IGNORECASE)
+    ]
+
+    turn_data = {
+        "tools": selected_tools,
+        "synthesizer_response": response,
+        "errors": errors,
+        "plan_steps": plan_steps_data,
+        "tool_results": tool_results_data,
+        "citations": citations,
+    }
+
+    passed_checks, failed_checks, _ = evaluate_turn_checks(turn_data, checks=checks)
 
     turn_res = TurnResult(
         query=query,
@@ -437,20 +545,49 @@ def run_single_turn(
     return turn_res, updated_messages
 
 
-def run_acceptance_suite(delay_seconds: float = DEFAULT_DELAY_SECONDS) -> None:
-    """Run all test cases in sequence with delay pacing."""
+def run_acceptance_suite(
+    delay_seconds: float = DEFAULT_DELAY_SECONDS,
+    filter_id: str | None = None,
+    output_file: Path | None = None,
+    dry_run: bool = False,
+) -> list[TestCaseResult]:
+    """Run test cases with rate limiting, optional filtering, and dry-run validation."""
+    target_results_file = output_file or RESULTS_FILE
+    target_results_file.parent.mkdir(parents=True, exist_ok=True)
+
+    test_pack = TEST_PACK
+    if filter_id:
+        test_pack = [t for t in TEST_PACK if filter_id.lower() in t["id"].lower()]
+        logger.info("Filtered test pack to %d cases matching '%s'", len(test_pack), filter_id)
+
+    if dry_run:
+        logger.info("Running in dry-run mode (validating test definitions without live execution)...")
+        results = []
+        for t in test_pack:
+            results.append(
+                TestCaseResult(
+                    test_id=t["id"],
+                    category=t["category"],
+                    description=t["description"],
+                    turns=[],
+                    overall_status="PASSED",
+                    silent_correctness_notes=["Dry run validated."],
+                )
+            )
+        return results
+
     logger.info("Initializing LLM and compiling StateGraph...")
     llm = create_llm()
     compiled_graph = build_graph(llm)
 
     logger.info(
         "Starting Acceptance Test Suite (%d test cases, delay=%.1fs)...",
-        len(TEST_PACK),
+        len(test_pack),
         delay_seconds,
     )
     all_results: list[TestCaseResult] = []
 
-    for idx, test_spec in enumerate(TEST_PACK, start=1):
+    for idx, test_spec in enumerate(test_pack, start=1):
         test_id = test_spec["id"]
         category = test_spec["category"]
         desc = test_spec["description"]
@@ -459,7 +596,7 @@ def run_acceptance_suite(delay_seconds: float = DEFAULT_DELAY_SECONDS) -> None:
         logger.info(
             "[%d/%d] Running %s (%s): %s",
             idx,
-            len(TEST_PACK),
+            len(test_pack),
             test_id,
             category,
             desc,
@@ -552,13 +689,13 @@ def run_acceptance_suite(delay_seconds: float = DEFAULT_DELAY_SECONDS) -> None:
         all_results.append(test_case_res)
 
         # Write intermediate JSON results to disk after each test
-        with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+        with open(target_results_file, "w", encoding="utf-8") as f:
             json.dump(
                 [asdict(r) for r in all_results], f, indent=2, default=str
             )
 
         # Rate-limiting cooldown pause between test cases
-        if idx < len(TEST_PACK):
+        if idx < len(test_pack):
             time.sleep(delay_seconds)
 
     # Print summary scorecard
@@ -578,6 +715,20 @@ def run_acceptance_suite(delay_seconds: float = DEFAULT_DELAY_SECONDS) -> None:
                     print(f"       -> Check Failed: {f_chk}")
     print("=" * 80 + "\n")
 
+    return all_results
+
 
 if __name__ == "__main__":
-    run_acceptance_suite()
+    parser = argparse.ArgumentParser(description="Insight Copilot Acceptance Test Runner")
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS, help="Delay between LLM calls in seconds")
+    parser.add_argument("--filter", type=str, default=None, help="Filter test cases by ID (e.g. DC, AC, MT, U)")
+    parser.add_argument("--output", type=Path, default=None, help="Path to save output JSON results")
+    parser.add_argument("--dry-run", action="store_true", help="Validate test definitions without live execution")
+    args = parser.parse_args()
+
+    run_acceptance_suite(
+        delay_seconds=args.delay,
+        filter_id=args.filter,
+        output_file=args.output,
+        dry_run=args.dry_run,
+    )

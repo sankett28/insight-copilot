@@ -60,7 +60,7 @@ st.markdown(
         background: transparent !important;
         height: 2.8rem !important;
         z-index: 99999 !important;
-        pointer-events: auto !important;
+        pointer-events: none !important;
     }
     [data-testid="stSidebarCollapsedControl"],
     [data-testid="stSidebarCollapseButton"],
@@ -106,7 +106,7 @@ st.markdown(
     }
 
     .block-container {
-        padding-top: 0.6rem !important;
+        padding-top: 2.8rem !important;
         padding-bottom: 0.25rem !important;
         padding-left: 1.25rem !important;
         padding-right: 1.25rem !important;

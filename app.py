@@ -54,11 +54,34 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* 1. Hide default Streamlit top header & footer to prevent clipping */
+    /* 1. Header & Sidebar Controls (Keep Sidebar Expand Button Visible) */
     header[data-testid="stHeader"] {
-        display: none !important;
+        background: transparent !important;
+        height: 0px !important;
+        z-index: 99999 !important;
+        pointer-events: none !important;
     }
-    #MainMenu, footer {
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    header[data-testid="stHeader"] button {
+        pointer-events: auto !important;
+        display: flex !important;
+        visibility: visible !important;
+        z-index: 100000 !important;
+        background: rgba(22, 27, 34, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 8px !important;
+        color: #e6edf3 !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stSidebarCollapsedControl"]:hover,
+    [data-testid="collapsedControl"]:hover,
+    header[data-testid="stHeader"] button:hover {
+        background: rgba(56, 189, 248, 0.2) !important;
+        border-color: #38bdf8 !important;
+        color: #38bdf8 !important;
+    }
+    #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         visibility: hidden !important;
         display: none !important;
     }

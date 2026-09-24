@@ -171,13 +171,13 @@ from real tool evidence.
 ### 2A — Capability Registry & Architecture
 
 - [x] Design and implement `utils/capability_registry.py`
-  - `Capability` dataclass: `name`, `category`, `description`, `input_schema`, `output_schema`, `deterministic`, `dependencies`, `independent`, `consumes_previous_results`
+  - `Capability` dataclass: `name`, `category`, `description`, `input_schema`, `output_description`, `deterministic`, `independent`, `consumes_previous_results`, `node_name`
   - `REGISTRY: dict[str, Capability]` — single authoritative source for all registered capabilities
-  - `registry.to_planner_context() -> str` — generate capability list for planner system prompt
-  - `registry.to_node_map() -> dict[str, str]` — generate router dispatch map from registry
+  - `get_planner_context() -> str` — generate capability list for planner system prompt
+  - `get_node_map() -> dict[ToolName, str]` — generate router dispatch map from registry
 - [x] Register all 4 Phase 1 capabilities in the registry
-- [x] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `registry.to_planner_context()`
-- [x] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `registry.to_node_map()`
+- [x] Update `utils/prompts.py::PLANNER_SYSTEM_PROMPT` to be generated from `get_planner_context()`
+- [x] Update `agent/router.py::_TOOL_NODE_MAP` to be derived from `get_node_map()`
 - [x] Add ADR-009 documenting the Capability Registry decision
 
 ### 2B — Planner Integration & Validation

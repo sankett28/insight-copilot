@@ -108,7 +108,7 @@ Detailed benchmark breakdown is documented in [`docs/evaluation-results.md`](doc
 
 * **Language & Runtime**: Python 3.12+
 * **Orchestration**: LangGraph StateGraph (DAG-based state machine)
-* **LLM Architecture**: Provider-agnostic `BaseLLM` interface with `GeminiLLM` (`gemini-3.5-flash-lite`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) fallback wrapped in `FallbackLLM`.
+* **LLM Architecture**: Provider-agnostic `BaseLLM` interface with `GeminiLLM` (production model: `gemini-3.5-flash`; local/development default: `gemini-3.5-flash-lite`) primary provider and optional `GroqLLM` (`openai/gpt-oss-120b`) fallback wrapped in `FallbackLLM`.
 * **Contract Validation**: Pydantic v2
 * **Analytical Engine**: In-memory DuckDB OLAP engine over Apache Parquet
 * **Visualizations**: Plotly Graph Objects (dark-themed responsive charts)
@@ -163,7 +163,7 @@ copy .env.example .env
 
 ```env
 GEMINI_API_KEY=your-gemini-api-key-here
-GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash-lite   # local/development default; production uses gemini-3.5-flash
 GROQ_API_KEY=your-groq-api-key-here
 GROQ_MODEL=openai/gpt-oss-120b
 LLM_PROVIDER=gemini

@@ -1,9 +1,32 @@
 # Hardening & Reliability Plan — Insight Copilot
 
-> **Status**: Approved Blueprint / Active Execution Roadmap  
-> **Target Version**: Insight Copilot v1.0 Production Hardening  
-> **Repository**: [`sankett28/insight-copilot`](https://github.com/sankett28/insight-copilot)  
+> **Status**: Historical Hardening Blueprint / Completed Release Plan
+> **Target Version**: Insight Copilot v1.0 Production Hardening
+> **Repository**: [`sankett28/insight-copilot`](https://github.com/sankett28/insight-copilot)
 > **Core Architectural Principle**: *LLM decides (Planner) → Deterministic Python/DuckDB executes → LLM explains (Synthesizer).*
+
+---
+
+## Historical Context
+
+This document records the multi-phase hardening roadmap and audit findings identified during active development of Insight Copilot.
+
+**All Phases 1–4 of this plan have been completed as part of the internship project delivery.** The vulnerabilities and risks documented in Section 2 (Audit Findings Matrix) were the findings *at the time of the audit* and have since been addressed. Specifically:
+
+- **Data isolation (Phase 1)**: Session-scoped DuckDB connections implemented (`create_session_connection` in `utils/data_loader.py`). Bronze/Silver layer fully wired.
+- **Graph wiring (Phase 1)**: `data_clean` is registered in `agent/graph.py` conditional edges.
+- **Plan validation (Phase 2)**: `agent/validator.py` implemented with step sequencing, DAG acyclicity, parameter schema validation, and registered capability checks.
+- **Synthesis grounding (Phase 4)**: `[Step N]` citation pattern enforced. Token-bounded history in synthesizer.
+- **Evaluation harness (Phase 5 / Phase 4)**: 35-case benchmark harness implemented in `tests/evaluation/`.
+- **SDK migration (Phase 6)**: `llm/gemini.py` migrated to `google-genai` SDK. Zero deprecation warnings.
+- **Telemetry (Phase 6)**: Structured `run_id` and millisecond-level latency logging implemented across all nodes.
+
+The **Deferred** items listed in Section 3 (phases beyond the release scope, such as hypothesis-driven investigation, report export, and advanced statistical extensions) remain future work outside the current release boundary.
+
+**Do not interpret the original audit findings below as current unresolved defects.**
+
+---
+
 
 ---
 

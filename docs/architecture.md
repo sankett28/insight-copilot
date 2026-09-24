@@ -37,7 +37,7 @@ LLM explains.      → Executive synthesis with mandatory [Step X] citations.
 | **Capability Registry** | `utils/capability_registry.py` | Authoritative registry of all 13 analytical capabilities, input schemas, and LangGraph tool node bindings. |
 | **Data Layer** | `utils/data_loader.py` | Ingests `Sales_Dataset_2024.xlsx` → `sales_dataset.parquet`, registers Bronze (`raw_dataset`) and Silver (`dataset`) DuckDB views. |
 | **Synthesizer** | `agent/synthesizer.py` | LLM node. Receives serialised `ToolResult` objects, calls `BaseLLM`, and returns an analyst-style answer grounded entirely in tool evidence. |
-| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` (`gemini-3.5-flash-lite`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) fallback wrapped via `FallbackLLM`. Factory in `llm/factory.py`. |
+| **LLM Provider** | `llm/` | `BaseLLM` abstract interface + `GeminiLLM` (production: `gemini-3.5-flash`) primary provider and `GroqLLM` (`openai/gpt-oss-120b`) optional fallback wrapped via `FallbackLLM`. Factory in `llm/factory.py`. |
 | **Schemas** | `models/schemas.py` | Pydantic contracts: `AnalysisPlan`, `PlanStep`, `ToolResult`, `DatasetSchema`, and 13 capability input schemas. |
 | **Prompts** | `utils/prompts.py` | Centralised system prompts for planner and synthesizer. Dataset schema summary injected dynamically. |
 | **Logging & Telemetry** | `utils/logging_config.py` | Structured run-level logging with `SensitiveDataFilter` secret redaction and rotating file handlers. |
@@ -172,8 +172,8 @@ ANALYSIS (deterministic tool execution)
 
 The **Capability Registry** (`utils/capability_registry.py`) is the single authoritative source of truth for all 13 analytical capabilities. Everything — the planner prompt context, the router's node dispatch map, and parameter contract validation — is derived dynamically from the registry.
 
-- Adding a new capability requires registering it once in `CapabilityRegistry`.
-- Input parameters, output descriptions, and tool dependencies are defined in one central location.
+- Adding a new capability requires registering it once in the `REGISTRY` dict.
+- Input schemas, output descriptions, and category metadata are defined in one central location.
 - Planner prompts and router dispatch maps are dynamically generated from the registry, eliminating dual sources of truth.
 
 ### Capability Definition
@@ -182,15 +182,15 @@ Each registered capability has the following attributes:
 
 ```
 Capability
-├── name              str          — canonical identifier used in plans and routing
-├── category          str          — DATA_ACCESS | CORE_ANALYSIS | ADVANCED | PRESENTATION
-├── description       str          — one-sentence description for the planner prompt
-├── input_schema      type[BaseModel]  — Pydantic model that validates PlanStep.parameters
-├── output_schema     str          — description of what ToolResult.data will contain
-├── deterministic     bool         — True for all DuckDB/Plotly tools; False if LLM involved
-├── dependencies      list[str]    — capabilities that should run before this one
-├── independent       bool         — can run as the first (or only) step in a plan
-└── consumes_previous_results bool — requires data from a prior ToolResult (e.g. charts)
+├── name                      str              — canonical identifier used in plans and routing
+├── category                  str              — DATA_ACCESS | CORE_ANALYSIS | ADVANCED | PRESENTATION
+├── description               str              — one-sentence description for the planner prompt
+├── input_schema              type[BaseModel]  — Pydantic model that validates PlanStep.parameters
+├── output_description        str              — description of what ToolResult.data will contain
+├── deterministic             bool             — True for all DuckDB/Plotly tools; False if LLM involved
+├── independent               bool             — can run as the first (or only) step in a plan
+├── consumes_previous_results bool             — requires data from a prior ToolResult (e.g. charts)
+└── node_name                 str              — LangGraph node name used in router dispatch map
 ```
 
 ### Registry-Derived Integration
@@ -219,6 +219,7 @@ Returns `{ToolName(cap.name): cap.node_name}` for conditional edge routing.
 |---|---|---|
 | `data_profile` | Dataset overview: row count, columns, types, missing values, cardinality, date range, numeric ranges, data quality warnings | ✅ Implemented |
 | `data_query` | Filtered SELECT with column selection, equality filters, sorting, row limits | ✅ Implemented |
+| `data_clean` | Interactive dimension hygiene: casing standardization, fuzzy typo clustering (e.g. `Easst` → `East`), and null value imputation on Silver `dataset` view | ✅ Implemented |
 
 ### CORE ANALYSIS
 

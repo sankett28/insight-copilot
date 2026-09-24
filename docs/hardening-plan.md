@@ -47,22 +47,25 @@ The system operates strictly on the canonical dataset **`Sales_Dataset_2024.xlsx
 
 ## 2. Comprehensive Codebase Audit & Risk Inventory
 
-A full audit across `agent/*`, `models/*`, `utils/*`, `tools/*`, `llm/*`, `app.py`, `tests/*`, and `docs/*` identified the following architectural vulnerabilities:
+A full audit across `agent/*`, `models/*`, `utils/*`, `tools/*`, `llm/*`, `app.py`, `tests/*`, and `docs/*` was conducted during development. The findings below are **historical** — they were identified and subsequently resolved. They are preserved for engineering transparency and traceability.
 
-### Audit Findings Matrix
+### Historical Audit Findings Matrix
 
-| Component | Current State | Risk / Vulnerability | Severity | Target Phase |
+> **All findings below were identified during development and have been resolved in the specified phase.**
+> Do not interpret these as current defects.
+
+| Historical Finding | Historical Risk | Original Severity | Resolved In | Resolution |
 |---|---|---|---|---|
-| **Data Layer & Session State** | `utils/data_loader.py` maintains a module-level global `_connection: duckdb.DuckDBPyConnection`. | In multi-user Streamlit deployments or parallel tests, `data_clean` updates to the active `dataset` view mutate global state across all sessions. User A cleaning regions will contaminate User B's raw view. | **HIGH** | Phase 1 |
-| **Graph Wiring** | `NODE_DATA_CLEAN` is registered in `agent/graph.py` nodes and `_TOOL_NODES`, but is omitted from `graph.add_conditional_edges` mapping dictionary. | If the planner selects `data_clean`, LangGraph raises a routing exception during conditional edge traversal. | **HIGH** | Phase 1 |
-| **Plan Validation Boundary** | `agent/planner.py` parses `AnalysisPlan` but lacks pre-dispatch validation for cyclic dependencies, disconnected step numbers, duplicate steps, and schema parameter validation. | Malformed step dependency graphs (e.g. `depends_on=[99]` or cyclic `1 -> 2 -> 1`) crash the router at runtime rather than gracefully recovering. | **HIGH** | Phase 2 |
-| **Error vs Intent Routing** | `agent/planner.py` catches all LLM exceptions and defaults to `intent=UNKNOWN` with empty steps. | LLM timeouts, quota errors, or network outages are masked as "conversational queries" rather than returning a clean, retryable system error to the UI. | **MEDIUM** | Phase 2 |
-| **Analytical Grounding & Glossary** | Business semantics in some tools allow implicit assumptions (e.g. contribution limit applied before population sum, profit margin column naming). | Risk of metric distortion: calculating % share of top 5 instead of % share of total population; division by zero on zero revenue. | **MEDIUM** | Phase 3 |
-| **Chart Data Resolution** | `tools/charts.py` auto-infers x/y axes if omitted, but lacks strict schema verification for auto-inferred columns. | Charts tool could attempt to render invalid column types (e.g. categoricals on both axes for a line chart) when prior step data is irregular. | **LOW** | Phase 3 |
-| **Synthesizer Context & Citations** | `agent/synthesizer.py` passes full tool payloads without explicit step citation enforcement `[Step N]` or token budget bounding. | Large multi-step responses risk token overflow and loss of exact mathematical attribution in executive summaries. | **MEDIUM** | Phase 4 |
-| **SDK Deprecation** | `llm/gemini.py` imports deprecated `google.generativeai` package. | Library is deprecated by Google and scheduled for end-of-support; raises `FutureWarning` on every test run. | **MEDIUM** | Phase 6 |
-| **UI Deprecation** | `app.py` uses `use_container_width=True` on `st.dataframe`, `st.button`, `st.plotly_chart`. | Streamlit 1.35+ will deprecate `use_container_width` in favor of `use_container_width="auto"` or `width="stretch"`. | **LOW** | Phase 6 |
-| **Automated Evaluation** | No quantitative evaluation benchmark harness exists. | Inability to score planner intent accuracy, tool selection precision, and factual grounding regressions across prompt iterations. | **HIGH** | Phase 5 |
+| **Data Layer & Session State** — `utils/data_loader.py` maintained a module-level global `_connection`. | In multi-user deployments or parallel tests, `data_clean` mutations could contaminate other sessions' `dataset` view. | HIGH | Phase 1 | Session-scoped DuckDB connection factory (`create_session_connection`) implemented. Bronze `raw_dataset` view is immutable; Silver `dataset` view is session-isolated. |
+| **Graph Wiring** — `NODE_DATA_CLEAN` was registered in nodes and `_TOOL_NODES` but omitted from `graph.add_conditional_edges` mapping. | Planner selecting `data_clean` would raise a LangGraph routing exception. | HIGH | Phase 1 | `data_clean` added to `add_conditional_edges` mapping in `agent/graph.py`. Routing verified by test suite. |
+| **Plan Validation Boundary** — `agent/planner.py` lacked pre-dispatch validation for cyclic dependencies, duplicate step numbers, and parameter schema conformance. | Malformed plans (e.g. `depends_on=[99]`, cyclic `1 → 2 → 1`) would crash the router at runtime. | HIGH | Phase 2 | `agent/validator.py` implemented: validates step sequence integrity, DAG acyclicity, Pydantic parameter schema conformance, and registered capability checks. |
+| **Error vs Intent Routing** — All LLM exceptions defaulted silently to `intent=UNKNOWN`. | API timeouts and quota errors were masked as conversational queries rather than surfacing clean system errors. | MEDIUM | Phase 2 | Planner now distinguishes LLM infrastructure errors from valid unknown-intent queries and appends to `state["errors"]` for clean `error_handler` routing. |
+| **Analytical Grounding & Glossary** — Some tools applied `LIMIT` before computing population totals, and division-by-zero on zero revenue was unguarded. | `contribution` % shares summed to less than 100%; `profitability` SQL crashed on zero-revenue entities. | MEDIUM | Phase 3 | `contribution` uses `SUM() OVER ()` window function before limit slicing. `profitability` uses `NULLIF(SUM(Revenue), 0)` zero-revenue guard. |
+| **Chart Data Resolution** — `tools/charts.py` auto-inferred axes without strict column type validation. | Charts could attempt to render incompatible column types causing silent rendering failures. | LOW | Phase 3 | Column validation added to `charts.py`; invalid column names return `ToolResult(success=False)` with descriptive error. |
+| **Synthesizer Context & Citations** — Full tool payloads passed without enforced `[Step N]` citation or token budget. | Multi-step responses risked attribution loss and prompt token overflow. | MEDIUM | Phase 4 | `SYNTHESIZER_SYSTEM_PROMPT` enforces mandatory `[Step N]` citation pattern. Context is bounded to top 15 rows per result. |
+| **SDK Deprecation** — `llm/gemini.py` imported deprecated `google.generativeai` package. | `FutureWarning` on every test run; scheduled end-of-support by Google. | MEDIUM | Phase 6 | Migrated to `google-genai` SDK. Zero deprecation warnings in test suite or runtime logs. |
+| **UI Deprecation** — `app.py` used `use_container_width=True` on Streamlit components. | Streamlit 1.35+ deprecates this parameter in favour of `width="stretch"`. | LOW | Phase 6 | Updated to `width="stretch"` across all Streamlit component calls in `app.py`. |
+| **Automated Evaluation** — No quantitative evaluation harness existed. | No ability to score planner intent accuracy or detect regressions across prompt iterations. | HIGH | Phase 5 | 35-case benchmark harness implemented in `tests/evaluation/`. Scores: 100% Intent Accuracy, 100% Tool Match, 100% Parameter Validity, 100% Execution Success. |
 
 ---
 

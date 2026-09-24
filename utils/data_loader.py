@@ -109,10 +109,23 @@ def get_connection() -> duckdb.DuckDBPyConnection:
 
 
 def reset_to_raw_dataset(conn: duckdb.DuckDBPyConnection | None = None) -> None:
-    """Reset the active 'dataset' view to match the immutable 'raw_dataset' on the specified or default connection."""
-    target_conn = conn if conn is not None else get_connection()
-    target_conn.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM raw_dataset")
-    logger.info("Reset active 'dataset' view to raw_dataset.")
+    """Reset the active 'dataset' view to match the immutable 'raw_dataset' on specified and default connections."""
+    global _connection  # noqa: PLW0603
+    target_conns: list[duckdb.DuckDBPyConnection] = []
+
+    if conn is not None:
+        target_conns.append(conn)
+
+    if _connection is not None and _connection not in target_conns:
+        target_conns.append(_connection)
+
+    if not target_conns:
+        target_conns.append(get_connection())
+
+    for c in target_conns:
+        c.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM raw_dataset")
+
+    logger.info("Reset active 'dataset' view to raw_dataset on %d connection(s).", len(target_conns))
 
 
 def reset_connection() -> None:

@@ -55,32 +55,37 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* 1. Header & Sidebar Controls (Keep Sidebar Expand Button Visible) */
+    /* 1. Header & Sidebar Controls (Keep Sidebar Expand Button Visible & Clickable) */
     header[data-testid="stHeader"] {
         background: transparent !important;
-        height: 0px !important;
+        height: 2.8rem !important;
         z-index: 99999 !important;
-        pointer-events: none !important;
+        pointer-events: auto !important;
     }
     [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"],
-    header[data-testid="stHeader"] button {
+    header[data-testid="stHeader"] button,
+    section[data-testid="stSidebar"] button {
         pointer-events: auto !important;
         display: flex !important;
         visibility: visible !important;
+        opacity: 1 !important;
         z-index: 100000 !important;
-        background: rgba(22, 27, 34, 0.85) !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        background: #161b22 !important;
+        border: 1px solid rgba(56, 189, 248, 0.5) !important;
         border-radius: 8px !important;
-        color: #e6edf3 !important;
+        color: #38bdf8 !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
         transition: all 0.2s ease !important;
     }
     [data-testid="stSidebarCollapsedControl"]:hover,
+    [data-testid="stSidebarCollapseButton"]:hover,
     [data-testid="collapsedControl"]:hover,
     header[data-testid="stHeader"] button:hover {
-        background: rgba(56, 189, 248, 0.2) !important;
+        background: rgba(56, 189, 248, 0.25) !important;
         border-color: #38bdf8 !important;
-        color: #38bdf8 !important;
+        color: #ffffff !important;
     }
     #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] {
         visibility: hidden !important;
@@ -556,21 +561,49 @@ with st.sidebar:
 
 active_model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
-st.markdown(
-    f"""
-    <div class="app-top-bar">
+col_top_left, col_top_mid, col_top_right = st.columns([1.8, 1.2, 1.2])
+
+with col_top_left:
+    st.markdown(
+        """
         <div class="top-bar-left">
             <span class="app-title">📊 Insight Copilot</span>
             <span class="app-tagline">2024 Sales Intelligence Workspace</span>
         </div>
-        <div class="top-bar-right">
+        """,
+        unsafe_allow_html=True,
+    )
+
+with col_top_mid:
+    tb_btn1, tb_btn2 = st.columns(2)
+    with tb_btn1:
+        if st.button("🔄 Reset Data", key="top_reset_data", width="stretch"):
+            reset_to_raw_dataset(st.session_state.get("db_conn"))
+            st.toast("Reset to raw dataset.", icon="🔄")
+            st.rerun()
+    with tb_btn2:
+        if st.button("🗑️ Clear Chat", key="top_clear_chat", width="stretch"):
+            st.session_state["messages"] = []
+            st.session_state["turn_artifacts"] = {}
+            st.session_state["turn_history"] = []
+            st.session_state["current_plan"] = None
+            st.session_state["current_tool_results"] = []
+            st.session_state["current_errors"] = []
+            st.session_state["current_telemetry"] = {}
+            st.session_state["last_query"] = None
+            st.session_state["pending_query"] = None
+            st.rerun()
+
+with col_top_right:
+    st.markdown(
+        f"""
+        <div class="top-bar-right" style="justify-content: flex-end;">
             <span class="top-badge db-badge">⚡ DuckDB SQL Engine</span>
             <span class="top-badge model-badge">🤖 {active_model_name}</span>
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------

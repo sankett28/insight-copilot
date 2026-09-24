@@ -194,3 +194,81 @@ def test_synthesizer_node_success():
     assert len(patch["messages"]) == 2
     assert patch["messages"][-1].role == Role.ASSISTANT
     assert patch["messages"][-1].content == expected_text
+
+
+def test_prior_executive_format_does_not_force_format_onto_simple_followup():
+    """ISSUE 1 (a): Prior executive-format assistant turn must NOT force executive template onto a simple follow-up."""
+    from agent.synthesizer import _build_synthesizer_messages
+
+    # Build conversation history with a long executive summary response
+    long_exec_response = (
+        "# Executive Summary\n"
+        "In 2024, total revenue reached \\$20,719,567.00 [Step 1].\n\n"
+        "## Factual Observations\n"
+        "- Top product: Tablet [Step 2]\n\n"
+        "## Business Interpretation\n"
+        "Tablets dominated hardware sales."
+    )
+
+    state = create_initial_state("What was its profit?")
+    state["messages"] = [
+        Message(role=Role.USER, content="Which product generated the most revenue in 2024?"),
+        Message(role=Role.ASSISTANT, content=long_exec_response),
+        Message(role=Role.USER, content="What was its profit?"),
+    ]
+
+    tool_results = [
+        ToolResult(step_number=1, tool=ToolName.METRICS, success=True, data=[{"Product": "Tablet", "sum_profit": 714708.61}])
+    ]
+
+    msgs = _build_synthesizer_messages("What was its profit?", tool_results, state)
+
+    # System prompt must instruct query-driven structure & context isolation
+    sys_msg = msgs[0]["content"]
+    assert "Query-Driven Structure & Context Isolation" in sys_msg
+    assert "MUST NOT copy or inherit the formatting, headers, verbosity, template" in sys_msg
+
+    # User payload must instruct concise answer for simple factual questions
+    user_payload = msgs[-1]["content"]
+    assert "do NOT inherit their formatting, templates, or verbosity" in user_payload
+    assert "provide a direct, concise 1-2 sentence answer" in user_payload
+
+
+def test_prior_conversation_provides_semantic_context_for_followup():
+    """ISSUE 1 (b): Prior conversation history is preserved in messages payload to resolve references like 'its' or 'that region'."""
+    from agent.synthesizer import _build_synthesizer_messages
+
+    state = create_initial_state("What was its profit?")
+    state["messages"] = [
+        Message(role=Role.USER, content="Which product generated the most revenue in 2024?"),
+        Message(role=Role.ASSISTANT, content="The Tablet generated the most revenue at \\$2,915,878.00 [Step 1]."),
+        Message(role=Role.USER, content="What was its profit?"),
+    ]
+
+    tool_results = [
+        ToolResult(step_number=1, tool=ToolName.METRICS, success=True, data=[{"Product": "Tablet", "sum_profit": 714708.61}])
+    ]
+
+    msgs = _build_synthesizer_messages("What was its profit?", tool_results, state)
+
+    # History turns must be present for semantic reference resolution
+    roles = [m["role"] for m in msgs]
+    assert "user" in roles
+    assert "assistant" in roles
+
+    # Assistant prior message must be present in history
+    hist_contents = [m["content"] for m in msgs if m["role"] == "assistant"]
+    assert any("Tablet" in c for c in hist_contents)
+
+
+def test_quantitative_citations_remain_required():
+    """ISSUE 1 (c): Quantitative step citations [Step N] remain strictly required in synthesizer instructions."""
+    from agent.synthesizer import _build_synthesizer_messages
+
+    state = create_initial_state("Show total revenue")
+    tool_results = [ToolResult(step_number=1, tool=ToolName.METRICS, success=True, data=[{"sum_revenue": 1000.0}])]
+
+    msgs = _build_synthesizer_messages("Show total revenue", tool_results, state)
+    user_payload = msgs[-1]["content"]
+
+    assert "Strictly cite source steps e.g. [Step 1], [Step 2] for all numbers" in user_payload

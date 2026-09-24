@@ -134,12 +134,15 @@ def _build_synthesizer_messages(
     results_text = _format_tool_results(tool_results)
 
     user_content = (
-        f"User question: {query}\n\n"
+        f"Current User Question: {query}\n\n"
         f"{plan_summary}\n\n"
-        f"Tool results:\n{results_text}\n\n"
-        "Please synthesise these results into a clear, executive-level narrative. "
-        "Strictly cite source steps e.g. [Step 1], [Step 2] for all numbers, totals, percentages, and metrics. "
-        "Use only the verified numbers from the tool results — do not invent or extrapolate data."
+        f"Tool Results:\n{results_text}\n\n"
+        "Formatting & Response Instructions:\n"
+        "1. Synthesise these tool results into a response tailored to the complexity of the current user question.\n"
+        "2. For simple factual questions (e.g. 'Which product generated the most revenue?'), provide a direct, concise 1-2 sentence answer. Do NOT use multi-section templates or executive headers unless requested.\n"
+        "3. Prior assistant messages in conversation history are strictly for resolving entity context (e.g. 'it', 'the same product'); do NOT inherit their formatting, templates, or verbosity.\n"
+        "4. Strictly cite source steps e.g. [Step 1], [Step 2] for all numbers, totals, percentages, and metrics.\n"
+        "5. Use only the verified numbers from the tool results — do not invent or extrapolate data."
     )
 
     messages_payload: list[dict[str, str]] = [

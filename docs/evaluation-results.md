@@ -1,6 +1,6 @@
 # Insight Copilot Automated Evaluation Report
 
-- **Timestamp**: 2026-09-22 11:33:20 UTC
+- **Timestamp**: 2026-09-23 19:37:20 UTC
 - **Total Benchmark Cases**: 35
 - **In-Domain Analytical Queries**: 31
 - **Meta & Out-of-Domain Queries**: 4
@@ -18,35 +18,35 @@
 
 | ID | Category | Intent Match | Tools Match | Params Valid | Exec Success | Duration |
 |---|---|:---:|:---:|:---:|:---:|---:|
-| `eval_01` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 32.5ms |
-| `eval_02` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 14.4ms |
-| `eval_03` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 15.3ms |
-| `eval_04` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 14.5ms |
-| `eval_05` | single_tool_trends | ✅ | ✅ | ✅ | ✅ | 15.3ms |
-| `eval_06` | single_tool_trends | ✅ | ✅ | ✅ | ✅ | 16.5ms |
-| `eval_07` | single_tool_profitability | ✅ | ✅ | ✅ | ✅ | 15.9ms |
-| `eval_08` | single_tool_profitability | ✅ | ✅ | ✅ | ✅ | 26.4ms |
-| `eval_09` | single_tool_compare | ✅ | ✅ | ✅ | ✅ | 16.5ms |
-| `eval_10` | single_tool_compare | ✅ | ✅ | ✅ | ✅ | 14.4ms |
-| `eval_11` | single_tool_contribution | ✅ | ✅ | ✅ | ✅ | 18.3ms |
-| `eval_12` | single_tool_contribution | ✅ | ✅ | ✅ | ✅ | 13.8ms |
-| `eval_13` | single_tool_variance | ✅ | ✅ | ✅ | ✅ | 18.4ms |
-| `eval_14` | single_tool_variance | ✅ | ✅ | ✅ | ✅ | 20.9ms |
-| `eval_15` | single_tool_data_query | ✅ | ✅ | ✅ | ✅ | 17.7ms |
-| `eval_16` | single_tool_data_profile | ✅ | ✅ | ✅ | ✅ | 39.2ms |
-| `eval_17` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 245.2ms |
-| `eval_18` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 38.7ms |
-| `eval_19` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 44.3ms |
-| `eval_20` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 37.6ms |
-| `eval_21` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 16.8ms |
-| `eval_22` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 19.1ms |
-| `eval_23` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 15.9ms |
-| `eval_24` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 14.0ms |
-| `eval_25` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 15.1ms |
-| `eval_26` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 15.8ms |
-| `eval_27` | data_cleaning | ✅ | ✅ | ✅ | ✅ | 18.5ms |
-| `eval_28` | data_cleaning | ✅ | ✅ | ✅ | ✅ | 21.9ms |
-| `eval_29` | meta_system | ✅ | ✅ | ✅ | ✅ | 0.0ms |
+| `eval_01` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 33.2ms |
+| `eval_02` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 16.7ms |
+| `eval_03` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 16.0ms |
+| `eval_04` | single_tool_metrics | ✅ | ✅ | ✅ | ✅ | 18.4ms |
+| `eval_05` | single_tool_trends | ✅ | ✅ | ✅ | ✅ | 21.5ms |
+| `eval_06` | single_tool_trends | ✅ | ✅ | ✅ | ✅ | 21.5ms |
+| `eval_07` | single_tool_profitability | ✅ | ✅ | ✅ | ✅ | 17.7ms |
+| `eval_08` | single_tool_profitability | ✅ | ✅ | ✅ | ✅ | 20.2ms |
+| `eval_09` | single_tool_compare | ✅ | ✅ | ✅ | ✅ | 14.2ms |
+| `eval_10` | single_tool_compare | ✅ | ✅ | ✅ | ✅ | 15.4ms |
+| `eval_11` | single_tool_contribution | ✅ | ✅ | ✅ | ✅ | 15.3ms |
+| `eval_12` | single_tool_contribution | ✅ | ✅ | ✅ | ✅ | 14.2ms |
+| `eval_13` | single_tool_variance | ✅ | ✅ | ✅ | ✅ | 19.6ms |
+| `eval_14` | single_tool_variance | ✅ | ✅ | ✅ | ✅ | 26.5ms |
+| `eval_15` | single_tool_data_query | ✅ | ✅ | ✅ | ✅ | 17.0ms |
+| `eval_16` | single_tool_data_profile | ✅ | ✅ | ✅ | ✅ | 40.9ms |
+| `eval_17` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 307.7ms |
+| `eval_18` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 41.5ms |
+| `eval_19` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 49.8ms |
+| `eval_20` | multi_tool_visualization | ✅ | ✅ | ✅ | ✅ | 46.0ms |
+| `eval_21` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 21.0ms |
+| `eval_22` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 21.1ms |
+| `eval_23` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 17.8ms |
+| `eval_24` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 14.1ms |
+| `eval_25` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 18.0ms |
+| `eval_26` | advanced_statistical | ✅ | ✅ | ✅ | ✅ | 16.9ms |
+| `eval_27` | data_cleaning | ✅ | ✅ | ✅ | ✅ | 24.9ms |
+| `eval_28` | data_cleaning | ✅ | ✅ | ✅ | ✅ | 28.8ms |
+| `eval_29` | meta_system | ✅ | ✅ | ✅ | ✅ | 0.1ms |
 | `eval_30` | meta_system | ✅ | ✅ | ✅ | ✅ | 0.0ms |
 | `eval_31` | meta_system | ✅ | ✅ | ✅ | ✅ | 0.0ms |
 | `eval_32` | adversarial_out_of_domain | ✅ | ✅ | ✅ | ✅ | 0.0ms |

@@ -166,7 +166,8 @@ def _format_tool_results(tool_results: list[ToolResult]) -> str:
     """Serialise tool results to a human-readable string for the prompt.
 
     Includes step header, provenance (source_view, row_count, execution_time_ms),
-    and truncates large list results (>15 rows) to keep prompt token size bounded.
+    an explicit ranking annotation (which metric the rows are sorted by), and
+    truncates large list results (>15 rows) to keep prompt token size bounded.
     """
     if not tool_results:
         return "No tool results available."
@@ -174,7 +175,7 @@ def _format_tool_results(tool_results: list[ToolResult]) -> str:
     parts: list[str] = []
     for result in tool_results:
         status = "✓" if result.success else "✗"
-        
+
         data = result.data
         truncation_note = ""
         if isinstance(data, list) and len(data) > 15:
@@ -187,12 +188,37 @@ def _format_tool_results(tool_results: list[ToolResult]) -> str:
             if data is not None
             else "null"
         )
-        
+
         provenance = (
             f"(source: {result.source_view}, rows: {result.row_count}, time: {result.execution_time_ms}ms)"
         )
+
+        # Build an explicit ranking note so the synthesizer knows which metric
+        # determined the ordering of the first row.  Without this annotation the
+        # LLM may incorrectly claim "highest revenue AND profit" when the SQL
+        # only sorted on one of them.
+        ranking_note = ""
+        if isinstance(result.data, list) and result.data and isinstance(result.data[0], dict):
+            first_row = result.data[0]
+            # Identify the aggregated metric column(s) — they start with a known
+            # aggregate prefix (sum_, avg_, count_, min_, max_, median_) and are
+            # numeric.  The first such column is the sort key.
+            agg_prefixes = ("sum_", "avg_", "average_", "count_", "min_", "max_", "median_")
+            agg_cols = [
+                k for k in first_row.keys()
+                if k.lower().startswith(agg_prefixes) and isinstance(first_row[k], (int, float))
+            ]
+            if agg_cols:
+                sort_metric = agg_cols[0]
+                ranking_note = (
+                    f"\n[RANKING NOTE: rows are sorted DESC by '{sort_metric}'. "
+                    f"The top row has the HIGHEST '{sort_metric}'. "
+                    f"Do NOT claim this row has the highest value of any other metric "
+                    f"unless that other metric also appears in this result and its ordering can be verified.]"
+                )
+
         header = f"[Step {result.step_number} | {result.tool.value}] {status} {provenance}"
-        parts.append(f"{header}\n{data_repr}{truncation_note}")
+        parts.append(f"{header}{ranking_note}\n{data_repr}{truncation_note}")
 
     return "\n\n".join(parts)
 

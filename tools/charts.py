@@ -59,6 +59,10 @@ def charts_tool_node(state: AgentState) -> dict:
     plan_step = plan.steps[step_idx]
     raw_params = plan_step.parameters or {}
 
+    # Resolve cross-step sentinel placeholders before chart parameter usage
+    from utils.result_resolver import resolve_step_parameters
+    raw_params = resolve_step_parameters(raw_params, tool_results)
+
     # Find candidate source tool results with hierarchical priority:
     # 1. Tabular list data from declared dependencies
     # 2. Tabular list data from any preceding tool result
@@ -132,7 +136,6 @@ def charts_tool_node(state: AgentState) -> dict:
 
     try:
         # Infer default x and y columns if missing from parameters
-        rows: list[dict[str, Any]] = source_result.data
         df_sample = pd.DataFrame(rows)
         cols = df_sample.columns.tolist()
 

@@ -62,6 +62,10 @@ def data_profile_tool_node(state: AgentState) -> dict:
     raw_params = plan_step.parameters or {}
     existing_results = list(state.get("tool_results", []))
 
+    # Resolve cross-step sentinel placeholders before Pydantic validation
+    from utils.result_resolver import resolve_step_parameters
+    raw_params = resolve_step_parameters(raw_params, existing_results)
+
     try:
         req = DataProfileRequest.model_validate(raw_params)
         start_t = time.perf_counter()

@@ -90,27 +90,35 @@ def build_planner_node(llm: BaseLLM):
             return {
                 "intent": plan.intent.value,
                 "plan": plan,
-                "selected_tools": plan.selected_tools,
+                "selected_tools": [step.tool for step in plan.steps],
                 "current_step": 0,
                 "telemetry": telemetry,
                 "errors": validation.errors,
             }
 
+        # Always derive selected_tools directly from plan.steps so that
+        # len(selected_tools) == len(plan.steps).  The LLM-generated
+        # selected_tools field may be deduplicated (e.g. two metrics steps →
+        # ["metrics"]) which would cause the router to terminate after step 1.
+        # This is the canonical execution list; it overrides whatever the LLM
+        # returned in the selected_tools field.
+        derived_tools = [step.tool for step in plan.steps]
+
         print(
             f"[LangGraph: Planner] Plan produced ({duration_ms:.2f}ms): intent={plan.intent.value} | "
-            f"steps={len(plan.steps)} | tools={[t.value for t in plan.selected_tools]}"
+            f"steps={len(plan.steps)} | tools={[t.value for t in derived_tools]}"
         )
         log_planner_completed(
             run_id=run_id,
             intent=plan.intent.value,
-            tools=[t.value for t in plan.selected_tools],
+            tools=[t.value for t in derived_tools],
             latency_ms=duration_ms,
         )
 
         return {
             "intent": plan.intent.value,
             "plan": plan,
-            "selected_tools": plan.selected_tools,
+            "selected_tools": derived_tools,
             "current_step": 0,
             "telemetry": telemetry,
         }

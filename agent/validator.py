@@ -91,6 +91,31 @@ def validate_analysis_plan(plan: AnalysisPlan | None) -> PlanValidationResult:
 
         cap = REGISTRY[tool_name]
         raw_params = s.parameters or {}
+
+        # Check if any parameter value is a sentinel that will be resolved at
+        # execution time (e.g. "__step_1_top_Region").  Sentinels are not real
+        # values yet, so Pydantic validation against strict enumerations would
+        # produce false-positive errors.  Skip value validation for such steps
+        # and emit a warning instead.
+        import re as _re
+        _SENTINEL_PATTERN = _re.compile(r"^__step_\d+_(?:top|first)_.+$", _re.IGNORECASE)
+
+        def _has_sentinel(obj) -> bool:
+            if isinstance(obj, str):
+                return bool(_SENTINEL_PATTERN.match(obj))
+            if isinstance(obj, dict):
+                return any(_has_sentinel(v) for v in obj.values())
+            if isinstance(obj, list):
+                return any(_has_sentinel(item) for item in obj)
+            return False
+
+        if _has_sentinel(raw_params):
+            result.add_warning(
+                f"Step {s.step_number} ({tool_name}) contains cross-step sentinel parameters "
+                "that will be resolved at execution time; Pydantic value validation deferred."
+            )
+            continue
+
         try:
             cap.input_schema.model_validate(raw_params)
         except ValidationError as exc:

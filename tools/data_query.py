@@ -60,6 +60,10 @@ def data_query_tool_node(state: AgentState) -> dict:
 
     existing_results = list(state.get("tool_results", []))
 
+    # Resolve cross-step sentinel placeholders before Pydantic validation
+    from utils.result_resolver import resolve_step_parameters
+    raw_params = resolve_step_parameters(raw_params, existing_results)
+
     try:
         req = DataQueryRequest.model_validate(raw_params)
         start_t = time.perf_counter()

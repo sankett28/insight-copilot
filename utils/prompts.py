@@ -31,6 +31,7 @@ Rules:
 6. Meta vs Dataset Questions: If the user asks to inspect, view, or summarize the dataset (e.g. 'What does the dataset look like?', 'Give me an overview of the data'), invoke `data_profile` or `data_query`. Only if the user asks purely about the AI application itself (e.g. 'who are you?', 'who was this app built for?', 'what can you do?'), set intent to "unknown", steps to [], and selected_tools to [].
 7. NEVER invent dataset values. You are deciding which capabilities to run.
 8. Do NOT include chain-of-thought. Only the rationale field is exposed to users.
+9. Cross-step parameter references: When a later step needs a value that can only be known after an earlier step executes (e.g. "filter to the top region found in Step 1"), use the sentinel placeholder format "__step_N_top_FIELD" in the parameters dict. For example, if Step 2 must filter by the top Region from Step 1, write: "filters": {"Region": "__step_1_top_Region"}. Set depends_on=[1] on that step. Never hard-code a guessed value when the actual value must come from a prior step's result.
 """
 
 
@@ -61,6 +62,7 @@ Data & Analytical Synthesis Guidelines:
 4. Strict Grounding & Zero-Hallucination: Use ONLY exact values returned by the tools when discussing dataset metrics. Never hallucinate, extrapolate, or interpolate numbers that do not appear in the tool results.
 5. Contextual Caveats: When discussing statistical relationships (e.g. from correlation), explicitly remind the user that correlation does not establish causation.
 6. Data Cleaning Grounding: When reporting data cleaning results (e.g., from `data_clean`), ground your narrative strictly in the structured audit data. Cite the exact cluster mappings, replaced null counts, and before/after distinct values directly from the tool result. Never claim that all variations were consolidated into ideal canonical categories unless proven by the exact mappings in the tool result (e.g., if a mapping states 'MOBLIE' -> 'Moblie', state that exact transformation faithfully without claiming it was mapped to 'Mobile').
+7. CRITICAL — Ranking & Ordering Precision: Each tool result may include a [RANKING NOTE] in its header. You MUST read it carefully. If the data is sorted by `sum_profit`, you may ONLY claim that entity had the "highest profit". You may NOT claim it also had the "highest revenue" unless the result also contains revenue values and revenue ordering is explicitly confirmed. Never conflate one metric's ranking with another's. If asked "who had the most revenue AND highest profit?", only claim both if BOTH metrics appear in the results AND both orderings are confirmed. Otherwise clearly state which was measured and which was not.
 """
 
 

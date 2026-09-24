@@ -86,6 +86,9 @@ def build_synthesizer_node(llm: BaseLLM):
                 "The raw tool results are available in the execution trace."
             )
 
+        from utils.ui_helpers import sanitize_markdown_currency
+        answer = sanitize_markdown_currency(answer)
+
         duration_ms = round((time.perf_counter() - start_t) * 1000.0, 2)
         timings["synthesizer_ms"] = duration_ms
         if "start_time" in telemetry:

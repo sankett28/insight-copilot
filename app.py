@@ -32,7 +32,7 @@ from utils.data_loader import (
     validate_dataset,
 )
 from utils.logging_config import log_run_start, setup_logging
-from utils.ui_helpers import generate_chart_key, is_plotly_figure_dict
+from utils.ui_helpers import generate_chart_key, is_plotly_figure_dict, sanitize_markdown_currency
 
 load_dotenv()
 setup_logging()
@@ -619,7 +619,7 @@ with col_chat:
         for idx, msg in enumerate(messages):
             role_label = "user" if msg.role == Role.USER else "assistant"
             with st.chat_message(role_label):
-                st.markdown(msg.content)
+                st.markdown(sanitize_markdown_currency(msg.content))
 
                 # Render attached Plotly figures
                 if role_label == "assistant" and idx in turn_artifacts:
@@ -672,7 +672,7 @@ with col_chat:
                 # Live Response Streaming in Chat
                 with chat_container:
                     with st.chat_message("assistant"):
-                        st.write_stream(_stream_text(final_answer))
+                        st.write_stream(_stream_text(sanitize_markdown_currency(final_answer)))
                         if charts:
                             for c_idx, chart_dict in enumerate(charts):
                                 fig = go.Figure(chart_dict)

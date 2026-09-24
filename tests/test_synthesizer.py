@@ -164,8 +164,8 @@ def test_synthesizer_node_llm_exception_fallback():
 
 def test_synthesizer_node_success():
     """Successful synthesis executes LLM chat and appends assistant answer to state messages."""
-    expected_text = "Total revenue across all regions in 2024 was $1,250,000 [Step 1]."
-    llm = RecordingMockLLM(response_text=expected_text)
+    expected_text = "Total revenue across all regions in 2024 was \\$1,250,000 [Step 1]."
+    llm = RecordingMockLLM(response_text="Total revenue across all regions in 2024 was $1,250,000 [Step 1].")
     synthesizer = build_synthesizer_node(llm)
 
     plan = AnalysisPlan(

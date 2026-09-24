@@ -51,3 +51,16 @@ def is_plotly_figure_dict(obj: Any) -> bool:
         and "layout" in obj
         and isinstance(obj.get("data"), list)
     )
+
+
+def sanitize_markdown_currency(text: str) -> str:
+    r"""Escape unescaped dollar signs ($) to prevent Streamlit KaTeX LaTeX math mode corruption.
+
+    In Streamlit markdown rendering, unescaped '$' characters are interpreted as opening/closing
+    inline LaTeX math blocks, which strips spaces, italicises text, and breaks number formatting.
+    Replacing unescaped '$' with '\$' ensures dollar amounts (e.g. \$2,915,878.00) render cleanly
+    in standard font layout.
+    """
+    if not text:
+        return text
+    return re.sub(r"(?<!\\)\$", r"\\$", text)

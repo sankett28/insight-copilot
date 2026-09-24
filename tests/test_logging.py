@@ -23,7 +23,7 @@ from utils.logging_config import (
 
 
 def test_sensitive_data_filter_redacts_api_keys():
-    """Verify SensitiveDataFilter redacts Gemini API keys and secrets."""
+    """Verify SensitiveDataFilter redacts Gemini API keys, Bearer tokens, and secrets."""
     filter_obj = SensitiveDataFilter()
 
     # Google AIza key pattern
@@ -38,6 +38,12 @@ def test_sensitive_data_filter_redacts_api_keys():
     redacted_env = filter_obj.redact(raw_env_msg)
     assert "my_secret_token_123" not in redacted_env
     assert "[REDACTED_API_KEY]" in redacted_env
+
+    # Generic secret and Bearer token pattern
+    bearer_msg = "Authorization: Bearer ya29.a0AfH6SMD_custom_test_token_123456789"
+    redacted_bearer = filter_obj.redact(bearer_msg)
+    assert "ya29.a0AfH6SMD_custom_test_token_123456789" not in redacted_bearer
+    assert "[REDACTED_API_KEY]" in redacted_bearer
 
 
 def test_sensitive_data_filter_logging_record():

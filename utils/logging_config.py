@@ -24,6 +24,8 @@ BACKUP_COUNT = 3
 _SECRET_PATTERNS = [
     re.compile(r"(AIza[0-9A-Za-z-_]{35})"),  # Google API key format
     re.compile(r"(GEMINI_API_KEY\s*[:=]\s*['\"]?)([^'\"\s]+)(['\"]?)", re.IGNORECASE),
+    re.compile(r"(bearer\s+[a-zA-Z0-9_\-\.]{20,})", re.IGNORECASE),
+    re.compile(r"((?:api[_-]?key|secret|token)\s*[:=]\s*['\"]?)([^'\"\s]{8,})(['\"]?)", re.IGNORECASE),
 ]
 
 
